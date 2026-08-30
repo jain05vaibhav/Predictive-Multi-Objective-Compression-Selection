@@ -1,0 +1,23 @@
+
+
+
+
+
+
+to create an env
+
+python -m venv venv
+
+
+
+
+
+enable python env 
+
+.\.venv\Scripts\activate.bat
+
+
+
+install the reqs
+
+pip install -r requirements.txt
