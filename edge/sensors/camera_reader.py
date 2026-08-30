@@ -6,7 +6,7 @@ Hardware Wiring:
 
 Required Libraries on Raspberry Pi OS:
   sudo raspi-config  # Enable Camera under Interface Options
-  sudo apt-get install python3-picamera2  # Bookworm / Bullseye OS
+  sudo apt-get install -y python3-picamera2  # Bookworm / Bullseye OS
   # OR
   pip install opencv-python
 """
@@ -14,11 +14,16 @@ Required Libraries on Raspberry Pi OS:
 from typing import Dict, Any
 import time
 
+# Support Linux/Raspberry Pi case-sensitive module import
 try:
-    from Picamera2 import Picamera2
+    from picamera2 import Picamera2
     HAS_PICAM2 = True
 except ImportError:
-    HAS_PICAM2 = False
+    try:
+        from Picamera2 import Picamera2
+        HAS_PICAM2 = True
+    except ImportError:
+        HAS_PICAM2 = False
 
 try:
     import cv2
@@ -42,8 +47,9 @@ class CameraReader:
                 config = self.picam2.create_preview_configuration(main={"size": resolution})
                 self.picam2.configure(config)
                 self.picam2.start()
+                print("[CameraReader] Picamera2 initialized successfully.")
             except Exception as e:
-                print(f"[Camera Warning] Picamera2 init failed: {e}")
+                print(f"[CameraReader Warning] Picamera2 init failed: {e}")
                 self.picam2 = None
 
         if not self.picam2 and HAS_OPENCV:
@@ -51,8 +57,9 @@ class CameraReader:
                 self.cap = cv2.VideoCapture(0)
                 self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
                 self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
+                print("[CameraReader] OpenCV VideoCapture initialized successfully.")
             except Exception as e:
-                print(f"[Camera Warning] OpenCV VideoCapture init failed: {e}")
+                print(f"[CameraReader Warning] OpenCV VideoCapture init failed: {e}")
                 self.cap = None
 
     def capture_frame(self) -> Dict[str, Any]:
@@ -64,8 +71,14 @@ class CameraReader:
 
         if self.picam2:
             try:
-                # Capture JPEG bytes directly using Picamera2
-                image_bytes = self.picam2.capture_file("/dev/null", format="jpeg")
+                # Capture frame array and encode to JPEG
+                frame_array = self.picam2.capture_array()
+                if HAS_OPENCV:
+                    # Convert BGR/RGB array to JPEG bytes
+                    _, buffer = cv2.imencode('.jpg', frame_array)
+                    image_bytes = buffer.tobytes()
+                else:
+                    image_bytes = frame_array.tobytes()
             except Exception as e:
                 print(f"[Camera Error] Picamera2 capture failed: {e}")
 
@@ -76,7 +89,7 @@ class CameraReader:
                 image_bytes = buffer.tobytes()
 
         if not image_bytes:
-            # Synthetic payload fallback if camera sensor is unreadable
+            # Synthetic payload fallback if hardware camera fails or is missing
             image_bytes = f"FRAME_{self.frame_counter}_BYTES_{time.time()}".encode("utf-8")
 
         return {
@@ -90,6 +103,39 @@ class CameraReader:
     def close(self):
         """Releases camera hardware resources."""
         if self.picam2:
-            self.picam2.stop()
+            try:
+                self.picam2.stop()
+            except Exception:
+                pass
         if self.cap:
-            self.cap.release()
+            try:
+                self.cap.release()
+            except Exception:
+                pass
+
+
+# Standalone Smoke-Test Script when run directly on Raspberry Pi
+if __name__ == "__main__":
+    print("=== Testing CameraReader on Raspberry Pi ===")
+    camera = CameraReader(resolution=(640, 480))
+    
+    # Give sensor a moment to warm up
+    time.sleep(1)
+
+    print("Capturing test frame...")
+    frame_data = camera.capture_frame()
+
+    print(f"Status: Captured Frame #{frame_data['frame_id']}")
+    print(f"Resolution: {frame_data['resolution']}")
+    print(f"Format: {frame_data['format']}")
+    print(f"Payload Size: {frame_data['size_bytes']} bytes")
+
+    # Save test image to disk if real JPEG bytes were captured
+    if frame_data["size_bytes"] > 100:
+        with open("test_frame.jpg", "wb") as f:
+            f.write(frame_data["image_bytes"])
+        print("Success! Captured real image saved to 'test_frame.jpg'")
+    else:
+        print("Fallback payload returned (Hardware camera not detected).")
+
+    camera.close()
