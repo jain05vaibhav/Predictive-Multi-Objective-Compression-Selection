@@ -1,0 +1,8 @@
+numpy
+scipy
+lz4
+zstandard
+Pillow
+pandas
+streamlit
+Flask
