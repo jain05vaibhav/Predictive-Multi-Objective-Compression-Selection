@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import contextlib
 
 
 # Support Linux/Raspberry Pi case-sensitive module import
@@ -32,9 +33,10 @@ except ImportError:
         HAS_PICAM2 = False
 
 try:
-    import cv2
+    with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+        import cv2
     HAS_OPENCV = True
-except ImportError:
+except (ImportError, Exception):
     HAS_OPENCV = False
 
 
@@ -135,9 +137,12 @@ class CameraReader:
                 "-o",
                 temp_path,
             ]
-            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+            with open(os.devnull, "w") as devnull:
+                subprocess.run(cmd, check=True, stdout=devnull, stderr=devnull, timeout=5.0)
             with open(temp_path, "rb") as f:
                 return f.read()
+        except Exception:
+            return b""
         finally:
             if os.path.exists(temp_path):
                 try:
@@ -271,12 +276,16 @@ class CameraReader:
                 "-o",
                 temp_path,
             ]
-            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+            with open(os.devnull, "w") as devnull:
+                subprocess.run(cmd, check=True, stdout=devnull, stderr=devnull, timeout=duration_ms / 1000.0 + 3.0)
             with open(temp_path, "rb") as f:
                 video_bytes = f.read()
         finally:
             if os.path.exists(temp_path):
-                os.remove(temp_path)
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
 
         return {
             "frame_id": self.frame_counter,
