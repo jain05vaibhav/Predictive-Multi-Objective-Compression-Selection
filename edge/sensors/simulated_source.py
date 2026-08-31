@@ -22,9 +22,9 @@ from typing import Dict, Any, Optional
 
 
 
-# Configuration flag: Set to True when physical Raspberry Pi hardware is wired and ready.
-# If False, or if hardware initialization fails, the backup simulation is automatically used.
-USE_REAL_HARDWARE: bool = False
+# Configuration flag: default to the real Raspberry Pi hardware path when wired and ready.
+# If the libraries or hardware are unavailable, the backup simulation is automatically used.
+USE_REAL_HARDWARE: bool = True
 
 
 class SimulatedSource:
