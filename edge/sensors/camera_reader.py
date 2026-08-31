@@ -1,12 +1,12 @@
 """
-CSI Camera Module Reader (Picamera2 / OpenCV)
+CSI Camera Module Reader (Picamera2 / OpenCV / Native libcamera CLI)
 
 Hardware Wiring:
-- CSI Ribbon Cable attached to Pi CSI Camera port.
+- CSI Ribbon Cable attached to Pi CSI Camera port (ov5647 / imx219 / imx708).
 
 Required Libraries on Raspberry Pi OS:
   sudo raspi-config  # Enable Camera under Interface Options
-  sudo apt-get install -y python3-picamera2  # Bookworm / Bullseye OS
+  sudo apt-get install -y python3-picamera2 libgpiod2 libraspberrypi-bin
   # OR
   pip install opencv-python
 """
@@ -38,6 +38,11 @@ except ImportError:
     HAS_OPENCV = False
 
 
+# Process-wide hardware handle cache to prevent duplicate device locking on Unicam/ISP
+_GLOBAL_PICAM2_INSTANCE: Optional[Any] = None
+_GLOBAL_OPENCV_CAP: Optional[Any] = None
+
+
 class CameraReader:
     """Captures real camera frames using Picamera2, OpenCV, or the native libcamera/rpicam CLI."""
 
@@ -47,6 +52,8 @@ class CameraReader:
         output_dir: str = "data/camera_captures",
         save_to_disk: bool = True
     ):
+        global _GLOBAL_PICAM2_INSTANCE, _GLOBAL_OPENCV_CAP
+
         self.resolution = resolution
         self.output_dir = output_dir
         self.save_to_disk = save_to_disk
@@ -62,29 +69,41 @@ class CameraReader:
 
         self._detect_cli_camera()
 
-
-
-
+        # 1. Reuse existing active Picamera2 or initialize a new singleton
         if HAS_PICAM2:
-            try:
-                self.picam2 = Picamera2()
-                config = self.picam2.create_preview_configuration(main={"size": resolution})
-                self.picam2.configure(config)
-                self.picam2.start()
-                print("[CameraReader] Picamera2 initialized successfully.")
-            except Exception as e:
-                print(f"[CameraReader Warning] Picamera2 init failed: {e}")
-                self.picam2 = None
+            if _GLOBAL_PICAM2_INSTANCE is not None:
+                self.picam2 = _GLOBAL_PICAM2_INSTANCE
+            else:
+                try:
+                    p2 = Picamera2()
+                    config = p2.create_preview_configuration(main={"size": resolution})
+                    p2.configure(config)
+                    p2.start()
+                    _GLOBAL_PICAM2_INSTANCE = p2
+                    self.picam2 = p2
+                    print("[CameraReader] Picamera2 initialized successfully.")
+                except Exception as e:
+                    print(f"[CameraReader Warning] Picamera2 init failed: {e}")
+                    self.picam2 = None
 
+        # 2. Reuse or initialize OpenCV VideoCapture fallback
         if not self.picam2 and HAS_OPENCV:
-            try:
-                self.cap = cv2.VideoCapture(0)
-                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
-                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
-                print("[CameraReader] OpenCV VideoCapture initialized successfully.")
-            except Exception as e:
-                print(f"[CameraReader Warning] OpenCV VideoCapture init failed: {e}")
-                self.cap = None
+            if _GLOBAL_OPENCV_CAP is not None and _GLOBAL_OPENCV_CAP.isOpened():
+                self.cap = _GLOBAL_OPENCV_CAP
+            else:
+                try:
+                    self.cap = cv2.VideoCapture(0)
+                    if self.cap.isOpened():
+                        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
+                        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
+                        _GLOBAL_OPENCV_CAP = self.cap
+                        print("[CameraReader] OpenCV VideoCapture initialized successfully.")
+                    else:
+                        self.cap.release()
+                        self.cap = None
+                except Exception as e:
+                    print(f"[CameraReader Warning] OpenCV VideoCapture init failed: {e}")
+                    self.cap = None
 
     def _detect_cli_camera(self):
         """Detect the Raspberry Pi libcamera/rpicam command-line tools installed on the OS."""
@@ -121,7 +140,10 @@ class CameraReader:
                 return f.read()
         finally:
             if os.path.exists(temp_path):
-                os.remove(temp_path)
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
 
     def capture_frame(self) -> Dict[str, Any]:
         """
@@ -130,6 +152,7 @@ class CameraReader:
         self.frame_counter += 1
         image_bytes = b""
 
+        # 1. Picamera2 direct memory capture
         if self.picam2:
             try:
                 frame_array = self.picam2.capture_array()
@@ -141,17 +164,19 @@ class CameraReader:
             except Exception as e:
                 print(f"[Camera Error] Picamera2 capture failed: {e}")
 
+        # 2. OpenCV VideoCapture stream
         elif self.cap and self.cap.isOpened():
             ret, frame = self.cap.read()
             if ret and HAS_OPENCV:
                 _, buffer = cv2.imencode('.jpg', frame)
                 image_bytes = buffer.tobytes()
 
+        # 3. CLI libcamera/rpicam fallback (only when Picamera2 not active)
         elif self.cli_camera_available:
             try:
                 image_bytes = self._read_cli_image_bytes(self.resolution[0], self.resolution[1])
-            except Exception as e:
-                print(f"[Camera Error] Native CLI capture failed: {e}")
+            except Exception:
+                pass
 
         if not image_bytes:
             image_bytes = f"FRAME_{self.frame_counter}_BYTES_{time.time()}".encode("utf-8")
@@ -261,18 +286,26 @@ class CameraReader:
             "size_bytes": len(video_bytes)
         }
 
-    def close(self):
+    def close(self, force: bool = False):
         """Releases camera hardware resources."""
-        if self.picam2:
-            try:
-                self.picam2.stop()
-            except Exception:
-                pass
-        if self.cap:
-            try:
-                self.cap.release()
-            except Exception:
-                pass
+        global _GLOBAL_PICAM2_INSTANCE, _GLOBAL_OPENCV_CAP
+        if force:
+            if _GLOBAL_PICAM2_INSTANCE:
+                try:
+                    _GLOBAL_PICAM2_INSTANCE.stop()
+                    _GLOBAL_PICAM2_INSTANCE.close()
+                except Exception:
+                    pass
+                _GLOBAL_PICAM2_INSTANCE = None
+                self.picam2 = None
+
+            if _GLOBAL_OPENCV_CAP:
+                try:
+                    _GLOBAL_OPENCV_CAP.release()
+                except Exception:
+                    pass
+                _GLOBAL_OPENCV_CAP = None
+                self.cap = None
 
 
 # Standalone Smoke-Test Script when run directly on Raspberry Pi
@@ -296,8 +329,5 @@ if __name__ == "__main__":
     print(f"  Saved Folder:   {camera.output_dir}/")
     print(f"  Overwritten At: {frame_data['saved_path']}")
 
-    camera.close()
+    camera.close(force=True)
     print("=== Capture Complete ===")
-
-
-
