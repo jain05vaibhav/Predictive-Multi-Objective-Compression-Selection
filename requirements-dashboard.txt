@@ -1,0 +1,5 @@
+# Cloud & Web Dashboard Dependencies (for PC / Server / Cloud Receiver)
+-r requirements.txt
+pandas
+streamlit
+Flask

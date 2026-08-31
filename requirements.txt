@@ -1,9 +1,7 @@
+# Core Edge Pipeline Dependencies (Raspberry Pi 3B+ & Edge Node)
 numpy
 scipy
 lz4
 zstandard
 Pillow
-pandas
-streamlit
-Flask
 psutil
