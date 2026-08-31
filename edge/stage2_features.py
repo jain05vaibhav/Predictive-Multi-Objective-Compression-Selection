@@ -1,5 +1,5 @@
 """
-Stage 2: Feature Extraction
+Stage 2: Feature Extraction (Raspberry Pi 3B+)
 
 Compresses each acquired Window into a compact feature vector containing:
 - Shannon Entropy (H): measures information density & compressibility
@@ -17,7 +17,7 @@ class FeatureExtractionStage:
     """
     Stage 2 Feature Extractor:
     Computes statistical and information-theoretic metrics on raw window telemetry
-    to guide Stage 4 multi-objective decision making.
+    (sensor readings, Raspberry Pi 3B+ SoC metrics) to guide Stage 4 multi-objective decision making.
     """
 
     def __init__(self, num_bins: int = 16):
@@ -37,14 +37,33 @@ class FeatureExtractionStage:
         if isinstance(first_sample, (int, float, np.number)):
             return np.array(data, dtype=float)
 
-        # Case 2: List of telemetry dictionaries (e.g. DHT22/INA219 sensor dicts)
+        # Case 2: List of telemetry dictionaries (e.g. DHT22 / RPi 3B+ system metrics)
         if isinstance(first_sample, dict):
-            # If feature_key specified, extract it
+            # If feature_key specified, extract it directly
             if feature_key and feature_key in first_sample:
                 return np.array([float(s[feature_key]) for s in data if s.get(feature_key) is not None], dtype=float)
 
+            # Check nested sections if feature_key is specified (e.g. "system.cpu_temp_c" or "cpu_temp_c")
+            if feature_key:
+                extracted = []
+                for s in data:
+                    val = None
+                    if feature_key in s:
+                        val = s[feature_key]
+                    elif "system" in s and isinstance(s["system"], dict) and feature_key in s["system"]:
+                        val = s["system"][feature_key]
+                    elif "dht22" in s and isinstance(s["dht22"], dict) and feature_key in s["dht22"]:
+                        val = s["dht22"][feature_key]
+                    if val is not None and isinstance(val, (int, float)):
+                        extracted.append(float(val))
+                if extracted:
+                    return np.array(extracted, dtype=float)
+
             # Preference order for primary numeric signal
-            candidate_keys = ["temperature", "temperature_c", "current_ma", "power_mw", "voltage_v", "humidity"]
+            candidate_keys = [
+                "temperature", "temperature_c", "cpu_temp_c", "cpu_percent",
+                "core_voltage_v", "cpu_freq_mhz", "core_freq_mhz", "humidity"
+            ]
             for key in candidate_keys:
                 if key in first_sample and isinstance(first_sample[key], (int, float)):
                     return np.array([float(s[key]) for s in data if s.get(key) is not None], dtype=float)

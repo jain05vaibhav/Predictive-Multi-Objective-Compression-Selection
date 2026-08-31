@@ -1,16 +1,16 @@
 """
-Stage 1: Data Acquisition & Windowing
+Stage 1: Data Acquisition & Windowing (Raspberry Pi 3B+)
 
-Turns a continuous sensor telemetry stream into discrete, uniformly-sized
-windows (size N or max wait time T_max) for downstream feature extraction,
-prediction, and compression.
+Turns a continuous Raspberry Pi hardware telemetry stream into discrete,
+uniformly-sized windows (size N or max wait time T_max) for downstream
+feature extraction, prediction, and compression.
 """
 
 import time
 import json
 from typing import List, Dict, Any, Optional, Union
-from edge.config import WINDOW_SIZE_N
-from edge.sensors.simulated_source import SimulatedSource
+from edge.config import WINDOW_SIZE_N, DEFAULT_SAMPLE_TIMEOUT
+from edge.sensors.telemetry_source import RPiTelemetryHub
 
 
 class Window:
@@ -72,20 +72,18 @@ class Window:
 class AcquisitionStage:
     """
     Stage 1 Acquisition Engine:
-    Samples from physical or simulated sensors and partitions the continuous stream
-    into discrete Window objects of size N (or when T_max expires).
+    Samples live telemetry from Raspberry Pi 3B+ hardware readers (RPiTelemetryHub)
+    and partitions the stream into discrete Window objects of size N (or when T_max expires).
     """
 
     def __init__(
         self,
         source: Optional[Any] = None,
         window_size: int = WINDOW_SIZE_N,
-        max_wait_time: float = 5.0,
+        max_wait_time: float = DEFAULT_SAMPLE_TIMEOUT,
         data_type: str = "numeric"
     ):
-        # Prefer the actual Raspberry Pi DHT22 path by default; automatically falls back
-        # to simulation if hardware initialization fails or the sensor libraries are missing.
-        self.source = source if source is not None else SimulatedSource(use_real_hardware=True)
+        self.source = source if source is not None else RPiTelemetryHub()
         self.window_size = window_size
         self.max_wait_time = max_wait_time
         self.data_type = data_type
@@ -93,14 +91,14 @@ class AcquisitionStage:
 
     def read_sample(self, source_override: Optional[Any] = None) -> Any:
         """
-        Reads a single sample from the active sensor source.
+        Reads a single sample from the active telemetry source.
         """
         active_source = source_override if source_override is not None else self.source
 
         if callable(active_source):
             return active_source()
         
-        # Check standard SimulatedSource / Sensor interface
+        # Check standard TelemetrySource / Sensor interface
         if hasattr(active_source, "read_all"):
             return active_source.read_all()
         elif hasattr(active_source, "read"):
@@ -112,7 +110,7 @@ class AcquisitionStage:
                 return active_source.pop(0) if isinstance(active_source, list) else active_source[0]
             return None
         
-        raise ValueError(f"Unsupported sensor source type: {type(active_source)}")
+        raise ValueError(f"Unsupported telemetry source type: {type(active_source)}")
 
     def acquire_window(
         self,
@@ -163,23 +161,23 @@ class AcquisitionStage:
 
 
 if __name__ == "__main__":
-    print("=== Stage 1: Data Acquisition Standalone Test ===")
-    stage1 = AcquisitionStage(window_size=10, max_wait_time=2.0)
-    print(f"Acquiring 3 windows with window_size={stage1.window_size}...")
+    print("=== Stage 1: Data Acquisition Standalone Test (Raspberry Pi 3B+) ===")
+    stage1 = AcquisitionStage(window_size=5, max_wait_time=2.0)
+    print(f"Acquiring 2 windows with window_size={stage1.window_size}...")
 
-    for w in stage1.stream_windows(max_windows=3, sample_interval=0.05):
-        print(f"Emitted {w}")
+    for w in stage1.stream_windows(max_windows=2, sample_interval=0.01):
+        print(f"\nEmitted {w}")
         if w.data:
             sample_preview = w.data[0]
+            sys_preview = sample_preview.get("system", {})
+            dht_preview = sample_preview.get("dht22", {})
             cam_preview = sample_preview.get("camera", {})
-            print(f"  First sample preview:")
-            print(f"    - Temperature: {sample_preview.get('temperature', 'N/A')} °C")
-            print(f"    - Humidity:    {sample_preview.get('humidity', 'N/A')} %")
-            print(f"    - Power Rail:  {sample_preview.get('voltage_v', 'N/A')} V, {sample_preview.get('current_ma', 'N/A')} mA, {sample_preview.get('power_mw', 'N/A')} mW")
-            print(f"    - Camera:      Frame #{cam_preview.get('frame_id', 'N/A')} | "
-                  f"Format: {cam_preview.get('format', 'JPEG')} | "
-                  f"Resolution: {cam_preview.get('resolution', (640, 480))} | "
-                  f"Payload Size: {cam_preview.get('size_bytes', len(cam_preview.get('image_bytes', b'')))} bytes")
-            print(f"  Serialized Window Byte Size: {len(w.to_bytes())} bytes")
-    print("Stage 1 execution complete.")
 
+            print("  [Sample Preview]")
+            print(f"    - DHT22 Temp / Hum:    {dht_preview.get('temperature_c', 'N/A')} °C, {dht_preview.get('humidity_percent', 'N/A')} %")
+            print(f"    - RPi SoC Temp / Freq: {sys_preview.get('cpu_temp_c', 'N/A')} °C, {sys_preview.get('cpu_freq_mhz', 'N/A')} MHz")
+            print(f"    - RPi Core Voltage:    {sys_preview.get('core_voltage_v', 'N/A')} V")
+            print(f"    - RPi CPU / Mem Load:  {sys_preview.get('cpu_percent', 'N/A')} %, {sys_preview.get('memory_percent', 'N/A')} %")
+            print(f"    - Camera:              Frame #{cam_preview.get('frame_id', 'N/A')} (Size: {cam_preview.get('size_bytes', 0)} bytes)")
+            print(f"  Serialized Window Byte Size: {len(w.to_bytes())} bytes")
+    print("\nStage 1 execution complete.")

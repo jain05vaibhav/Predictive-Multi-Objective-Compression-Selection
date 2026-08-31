@@ -19,26 +19,26 @@ source .venv/bin/activate
 # Install Project Requirements:
 pip install -r requirements.txt
 
-# (Raspberry Pi Only) Hardware Libraries & Interfaces:
-sudo raspi-config                             # Enable I2C and Camera interfaces
+# (Raspberry Pi 3B+ Only) Hardware Libraries & Interfaces:
+sudo raspi-config                             # Enable Camera interface
 sudo apt-get update
-sudo apt-get install -y python3-picamera2 libgpiod2 i2c-tools
-pip install adafruit-circuitpython-dht adafruit-circuitpython-ina219 opencv-python
+sudo apt-get install -y python3-picamera2 libgpiod2 libraspberrypi-bin
+pip install adafruit-circuitpython-dht opencv-python psutil
 
 
-2. SENSOR MODULE EXECUTION & TESTING
+2. SENSOR & TELEMETRY MODULE EXECUTION
 --------------------------------------------------------------------------------
-# Test Combined Simulated Telemetry (DHT22 + INA219 + Camera):
-python -m edge.sensors.simulated_source
+# Test Raspberry Pi 3B+ Native System Telemetry Reader (vcgencmd, psutil, /sys, /proc):
+python -m edge.sensors.rpi_system_reader
+
+# Test Unified Hardware Telemetry Hub (DHT22 + RPi 3B+ System + Camera):
+python -m edge.sensors.telemetry_source
 
 # Test CSI / USB Camera Reader (Captures in RAM & overwrites latest_frame.jpg):
 python -m edge.sensors.camera_reader
 
-# Test DHT22 Hardware Sensor (GPIO4):
+# Test DHT22 Environmental Sensor (GPIO4):
 python -m edge.sensors.dht22_reader
-
-# Test INA219 Power Monitor Sensor (I2C):
-python -m edge.sensors.ina219_power
 
 
 3. PIPELINE STAGE EXECUTION
@@ -55,11 +55,14 @@ python -c "from edge.stage1_acquisition import AcquisitionStage; from edge.stage
 
 4. AUTOMATED UNIT TESTS & VALIDATION
 --------------------------------------------------------------------------------
-# Run All Unit Tests Across Entire Suite (19 test cases):
+# Run All Unit Tests Across Entire Suite (28 test cases):
 python -m unittest discover tests
 
 # Run All Unit Tests with Verbose Output:
 python -m unittest discover tests -v
+
+# Run Raspberry Pi System Reader Tests:
+python -m unittest tests/test_rpi_system_reader.py
 
 # Run Stage 1 Tests Only:
 python -m unittest tests/test_stage1.py

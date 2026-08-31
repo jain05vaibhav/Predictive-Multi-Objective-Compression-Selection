@@ -1,364 +1,295 @@
 # Stage 1 & Stage 2 Documentation: Data Acquisition & Feature Extraction
 
 **Project:** Predictive Multi-Objective Compression Selection  
+**Target Platform:** Raspberry Pi 3B+ (Broadcom BCM2837 SoC)  
 **Pipeline Stages Covered:** 
 - **Stage 1:** Data Acquisition & Windowing
 - **Stage 2:** Feature Extraction (Shannon Entropy, Variance, Rate of Change)
 
 ---
 
-## 1. Overview & Purpose
+## 1. Overview & Architecture
 
-In IoT edge telemetry systems, continuous high-frequency sensor readings must be processed efficiently. Stages 1 and 2 form the input and analysis foundation of the entire pipeline:
-1. **Stage 1 (Acquisition & Windowing):** Converts a continuous, heterogeneous sensor stream into discrete, uniform time/sample windows.
-2. **Stage 2 (Feature Extraction):** Condenses each window into key statistical and information-theoretic indicators (Shannon Entropy, Variance, Rate of Change) required by the Stage 4 Decision Engine to select the optimal compression algorithm.
+In IoT edge telemetry and vision pipelines, continuous high-frequency physical sensor readings and onboard SoC metrics must be acquired, batched, and analyzed efficiently without stalling the operating system.
+
+Stages 1 and 2 establish the real-time data foundation of the pipeline:
+1. **Stage 1 (Acquisition & Windowing):** Polls real-time hardware telemetry (DHT22 environmental sensor, Raspberry Pi 3B+ SoC metrics, and CSI camera frames) into discrete, uniformly sized `Window` objects.
+2. **Stage 2 (Feature Extraction):** Condenses each multi-dimensional sample window into essential statistical and information-theoretic indicators (Shannon Entropy $H$, Variance $\sigma^2$, Rate of Change $\text{RoC}$) that guide the **Stage 4 Multi-Objective Decision Engine** in selecting the optimal compression algorithm.
 
 ```mermaid
 flowchart LR
-    A["Raw Sensors / Simulation\n(DHT22, INA219, Camera)"] --> B["Stage 1: Acquisition\n(Window Buffer: N samples / T_max)"]
-    B --> C["Window Object\n(data, data_type, timestamp, id)"]
-    C --> D["Stage 2: Feature Extraction\n(Entropy, Variance, Rate of Change)"]
-    D --> E["Feature Vector\n(H, sigma^2, roc, metadata)"]
-    E --> F["Stage 4: Multi-Objective Decision Engine"]
+    subgraph Hardware ["Hardware & SoC Layer"]
+        D["DHT22 (GPIO4)\nTemp & Humidity"]
+        S["RPi 3B+ SoC\n(vcgencmd, psutil, /sys, /proc)"]
+        C["CSI / USB Camera\n(Picamera2 / OpenCV / CLI)"]
+    end
+
+    subgraph Stage1 ["Stage 1: Data Acquisition"]
+        HUB["RPiTelemetryHub\n(telemetry_source.py)"]
+        ACQ["AcquisitionStage\nBuffer (N=50 / T_max=5.0s)"]
+        WIN["Window Object\n(data, data_type, timestamp, id)"]
+    end
+
+    subgraph Stage2 ["Stage 2: Feature Extraction"]
+        FEAT["FeatureExtractionStage\n(stage2_features.py)"]
+        VEC["Feature Vector\n(Entropy H, Variance σ², RoC, min/max/mean)"]
+    end
+
+    subgraph Downstream ["Decision & Compression Engine"]
+        DEC["Stage 4: Multi-Objective Decision Engine"]
+        COMP["Stage 5: Dynamic Compression Engine\n(LZ4, Zstandard, Bzip2, Snappy)"]
+    end
+
+    D --> HUB
+    S --> HUB
+    C --> HUB
+    HUB --> ACQ --> WIN --> FEAT --> VEC --> DEC --> COMP
 ```
 
 ---
 
 ## 2. Mathematical Foundations & Algorithms
 
-### Stage 1: Windowing Algorithm
-Given a continuous stream of sensor readings, a window $W_k$ is accumulated according to:
-- **Window Size ($N$):** Maximum number of samples per window (configured via `WINDOW_SIZE_N = 50`).
-- **Timeout ($T_{max}$):** Maximum wait duration (seconds) before emitting a partial window if sensor transmission is slow.
+### Stage 1: Dynamic Windowing Algorithm
+Given a continuous stream of telemetry samples, an acquisition window $W_k$ is accumulated according to:
+- **Window Size ($N$):** Target sample count per window (configured as `WINDOW_SIZE_N = 50`).
+- **Timeout ($T_{max}$):** Maximum collection window time before emitting a partial window if sensor transmission is slow (`DEFAULT_SAMPLE_TIMEOUT = 5.0` seconds).
 
 $$\text{Window } W_k = \{ s_1, s_2, \dots, s_m \} \quad \text{where } m = \min(N, \text{samples within } T_{max})$$
 
 ### Stage 2: Feature Extraction
 
 #### 1. Histogram Discretization & Shannon Entropy ($H$)
-Discretizes numeric series into $B$ equal-width histogram bins over the observed dynamic range $[x_{min}, x_{max}]$:
-- Probability of bin $i$:
+Discretizes numeric series into $B$ equal-width histogram bins ($B = 16$) across the observed dynamic range $[x_{min}, x_{max}]$:
+- Bin probability $p_i$:
   $$p_i = \frac{\text{count}(\text{bucket}_i)}{N}$$
 - **Shannon Entropy ($H$):**
   $$H = -\sum_{i=1, p_i > 0}^B p_i \log_2(p_i)$$
 - **Physical Interpretation:**
-  - $H \approx 0.0$: Signal is constant or highly redundant $\implies$ Highly compressible via delta/dictionary algorithms.
-  - $H \to \log_2(B)$ (e.g. $4.0$ for $16$ bins): High randomness / noise $\implies$ Harder to compress losslessly.
+  - $H \approx 0.0$: Signal is constant or highly redundant $\implies$ Maximum compression ratio achievable via dictionary or delta encoders.
+  - $H \to \log_2(B) = 4.0$: High randomness / thermal noise $\implies$ Harder to compress losslessly; fast stream compressors (e.g., LZ4) preferred over slow high-ratio codecs.
 
 #### 2. Statistical Variance ($\sigma^2$)
-Measures the dispersion / thermal fluctuation across the window:
+Measures sample dispersion and signal spread across the window:
 $$\sigma^2 = \frac{1}{N} \sum_{t=1}^N (x_t - \bar{x})^2$$
 
 #### 3. Rate of Change ($\text{RoC}$)
-Measures the average step-to-step absolute transition magnitude:
+Measures average step-to-step absolute transition magnitude:
 $$\text{RoC} = \frac{1}{N-1} \sum_{t=2}^N |x_t - x_{t-1}|$$
 
 ---
 
-## 3. Codebase Architecture
+## 3. Codebase Structure
 
 ```
 edge/
-├── config.py                 # Hyperparameters (N=50, T_max=5.0s, weights)
+├── config.py                 # Configuration parameters (N=50, T_max=5.0s, weights, RPi binary paths)
 ├── stage1_acquisition.py     # Window class & AcquisitionStage engine
-├── stage2_features.py        # FeatureExtractionStage (Entropy, Var, RoC)
+├── stage2_features.py        # FeatureExtractionStage (Entropy, Variance, RoC)
 └── sensors/
-    ├── simulated_source.py   # Hybrid simulated generator & hardware coordinator
-    ├── camera_reader.py      # CSI/USB camera reader (Picamera2 / OpenCV / CLI)
-    ├── dht22_reader.py       # DHT22 GPIO sensor reader
-    └── ina219_power.py       # INA219 I2C power sensor reader
+    ├── rpi_system_reader.py  # Native RPi 3B+ SoC metrics reader (vcgencmd, psutil, /sys, /proc)
+    ├── telemetry_source.py   # Unified RPiTelemetryHub hardware coordinator
+    ├── camera_reader.py      # CSI/USB camera reader (Picamera2 / OpenCV / libcamera CLI)
+    └── dht22_reader.py       # Physical DHT22 GPIO sensor driver
 tests/
-├── test_stage1.py            # Unit tests for Stage 1 (partitioning, timeouts)
-└── test_stage2.py            # Unit tests for Stage 2 (entropy bounds, variance)
+├── test_rpi_system_reader.py # Unit tests for vcgencmd parsing & psutil metrics
+├── test_stage1.py            # Unit tests for Stage 1 (batch partitioning, timeouts)
+├── test_stage2.py            # Unit tests for Stage 2 (entropy bounds, variance, RoC)
+└── test_camera_reader.py     # Unit tests for camera frames & in-memory RAM buffers
 ```
 
 ---
 
-## 4. Hardware vs. Simulation Modes
+## 4. Raspberry Pi 3B+ Native Telemetry Metrics
 
+The system telemetry reader ([edge/sensors/rpi_system_reader.py](file:///c:/Users/Vaibhav/Desktop/projects/project-1/edge/sensors/rpi_system_reader.py)) interfaces directly with the Broadcom BCM2837 SoC:
 
-The pipeline contains an automatic **hybrid fallback architecture**:
+| Metric Group | Specific Metric | RPi 3B+ Retrieval Mechanism | Unit / Values |
+| :--- | :--- | :--- | :--- |
+| **SoC / CPU Temperature** | `cpu_temp_c` | `vcgencmd measure_temp` or `/sys/class/thermal/thermal_zone0/temp` | °C |
+| **CPU Frequency (ARM)** | `cpu_freq_mhz` | `vcgencmd measure_clock arm` or `/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq` | MHz |
+| **Core Frequency** | `core_freq_mhz` | `vcgencmd measure_clock core` | MHz |
+| **Core Voltage** | `core_voltage_v` | `vcgencmd measure_volts core` | V |
+| **SDRAM Voltages** | `sdram_c_voltage_v`<br>`sdram_i_voltage_v`<br>`sdram_p_voltage_v` | `vcgencmd measure_volts sdram_c`<br>`vcgencmd measure_volts sdram_i`<br>`vcgencmd measure_volts sdram_p` | V |
+| **Throttling & Undervoltage** | `throttled_hex`<br>`undervoltage_now`<br>`throttled_now`<br>`undervoltage_occurred` | `vcgencmd get_throttled` (decoded bitmask) | Hex / bool |
+| **CPU Utilization** | `cpu_percent` | `psutil.cpu_percent(interval=None)` or `/proc/stat` | % |
+| **CPU Load Average** | `load_1m`, `load_5m`, `load_15m` | `os.getloadavg()` or `psutil.getloadavg()` | float |
+| **Memory Usage** | `memory_total_mb`<br>`memory_used_mb`<br>`memory_percent` | `psutil.virtual_memory()` | MB / % |
 
-| Mode | Configuration | Behavior |
-|---|---|---|
-| **Simulation Mode** (Default) | `USE_REAL_HARDWARE = False` in `simulated_source.py` | Generates realistic, fluctuating DHT22 temperature/humidity, INA219 power, and synthetic camera frames. Runs on any laptop or OS without hardware. |
-| **Physical Hardware Mode** | `USE_REAL_HARDWARE = True` in `simulated_source.py` | Reads real physical sensors (DHT22 on GPIO4, INA219 on I2C, CSI Camera via Picamera2/OpenCV/CLI) on Raspberry Pi. |
-| **Hybrid Fallback Mode** | `USE_REAL_HARDWARE = True` (with partial hardware) | If a camera or subset of sensors is connected, it **reads real hardware data while safely simulating missing sensors without crashing**. |
+### Throttling Bitmask Breakdown (`vcgencmd get_throttled`)
+
+| Bit | Hex Value | Meaning |
+| :---: | :---: | :--- |
+| **0** | `0x1` | **Under-voltage detected now** |
+| **1** | `0x2` | **ARM frequency capped now** |
+| **2** | `0x4` | **Currently throttled** |
+| **3** | `0x8` | **Soft temperature limit active now** |
+| **16** | `0x10000` | **Under-voltage has occurred since boot** |
+| **17** | `0x20000` | **ARM frequency capping has occurred since boot** |
+| **18** | `0x40000` | **Throttling has occurred since boot** |
+| **19** | `0x80000` | **Soft temperature limit has occurred since boot** |
 
 ---
 
-## 5. Sensor Telemetry Schema & Storage Architecture
+## 5. Physical Sensor Wiring Reference (Raspberry Pi 3B+)
 
-### Telemetry Payload Structure (`SimulatedSource.read_all()`)
+### 1. DHT22 Environmental Sensor (Temperature & Humidity)
+- **VCC (Pin 1):** 3.3V Power (Raspberry Pi Pin 1)
+- **DATA (Pin 2):** GPIO4 (Raspberry Pi Pin 7) with 10kΩ pull-up resistor to 3.3V
+- **NC (Pin 3):** Not connected
+- **GND (Pin 4):** Ground (Raspberry Pi Pin 9)
 
-Each sample gathered during acquisition contains structured sub-sections for every sensor:
+### 2. CSI Camera Module
+- Connect the 15-pin ribbon cable to the **CSI Camera Port** located between the HDMI and Audio jack (blue tape facing Ethernet/USB connectors).
+
+---
+
+## 6. Telemetry Payload & In-Memory Storage Flow
+
+### Complete Telemetry Sample Schema (`RPiTelemetryHub.read_all()`)
 
 ```python
 {
     "timestamp": 1788171660.84,
-    # Direct top-level access keys
-    "temperature": 23.98,          # Ambient temperature in °C
-    "humidity": 60.12,             # Relative humidity percentage
-    "voltage_v": 5.07,             # Raspberry Pi bus voltage in V
-    "current_ma": 441.85,          # Raspberry Pi current draw in mA
-    "power_mw": 2240.18,           # Raspberry Pi total power in mW
-    "frame_id": 1,                 # Camera sequential frame number
-    "frame_data": b"...",          # Raw frame bytes in memory
     
-    # Detailed sub-dictionaries per sensor module
+    # Primary top-level access keys:
+    "temperature": 23.98,          # DHT22 Ambient Temperature in °C
+    "humidity": 60.12,             # DHT22 Relative Humidity percentage
+    "cpu_temp_c": 48.2,            # RPi 3B+ SoC Temperature in °C
+    "cpu_freq_mhz": 1200.0,        # ARM CPU Clock in MHz
+    "core_freq_mhz": 400.0,        # VideoCore Clock in MHz
+    "core_voltage_v": 1.25,        # Core Voltage in V
+    "cpu_percent": 14.5,           # CPU Utilization %
+    "memory_percent": 32.4,        # RAM Utilization %
+    "frame_id": 1,                 # Camera sequential frame counter
+    "frame_data": b"...",          # Raw JPEG image payload bytes in RAM
+    
+    # Structured module sub-dictionaries:
     "dht22": {
         "temperature_c": 23.98,
         "humidity_percent": 60.12
     },
-    "ina219": {
-        "voltage_v": 5.07,
-        "bus_voltage_v": 5.07,
-        "current_ma": 441.85,
-        "power_mw": 2240.18,
-        "shunt_voltage_mv": 44.19
+    "system": {
+        "cpu_temp_c": 48.2,
+        "cpu_freq_mhz": 1200.0,
+        "core_freq_mhz": 400.0,
+        "core_voltage_v": 1.25,
+        "sdram_c_voltage_v": 1.20,
+        "sdram_i_voltage_v": 1.20,
+        "sdram_p_voltage_v": 1.225,
+        "throttled_hex": "0x0",
+        "undervoltage_now": False,
+        "throttled_now": False,
+        "cpu_percent": 14.5,
+        "cpu_count": 4,
+        "load_1m": 0.35,
+        "memory_total_mb": 948.2,
+        "memory_used_mb": 307.2,
+        "memory_percent": 32.4
     },
     "camera": {
         "frame_id": 1,
         "resolution": (640, 480),
         "format": "JPEG",
-        "image_bytes": b"...",     # Live binary payload in RAM
-        "size_bytes": 5438
+        "image_bytes": b"...",
+        "size_bytes": 5438,
+        "saved_path": "data/camera_captures/latest_frame.jpg"
     }
 }
 ```
 
-### In-Memory vs. On-Disk Data Flow
+### In-Memory vs. Disk Data Flow
 
-1. **In-Memory Storage (Default Streaming Pipeline):**
-   * **`CameraReader` / `SimulatedSource`**: When `save_photo_in_memory()`, `capture_frame()`, or `read_camera()` runs, raw JPEG bytes are stored in RAM as a Python `bytes` object and a dedicated `io.BytesIO` stream.
-   * **Direct In-Memory Access**: Downstream components can call `camera.get_in_memory_buffer()` to obtain the in-memory stream directly for image transforms or compression without touching disk.
-   * **Stage 1 `Window` Buffer**: Samples are buffered in RAM as a list in `window.data`. The method `window.to_bytes()` serializes the entire window into an in-memory byte stream ready for Stage 5 compression.
-   * **Zero Disk Overhead**: In standard continuous operation, no image or sensor files are written to disk, preventing SD card wear and latency on the Raspberry Pi.
+1. **In-Memory Streaming (Default Zero-Disk Mode):**
+   * Raw camera bytes and sensor dictionaries are held in RAM.
+   * Direct in-memory access via `camera_reader.get_in_memory_buffer()` or `window.to_bytes()`.
+   * **Zero Disk Wear:** Prevents SD card wear and eliminates I/O latency bottlenecks on the Raspberry Pi.
 
-2. **Folder Storage & Overwrite (`data/camera_captures/`):**
-   * **Destination Folder:** All camera captures are automatically saved to `data/camera_captures/` (created automatically if missing).
-   * **Overwrite Mode:** On every run or capture, the file **`latest_frame.jpg`** is overwritten with the newest frame:
-     ```
-     data/camera_captures/latest_frame.jpg
-     ```
-   * **Metadata Reference:** The returned camera dictionary includes `"saved_path"` with the absolute path of the overwritten file.
+2. **Folder Storage & Single Overwrite (`data/camera_captures/`):**
+   * Saves the single latest snapshot to `data/camera_captures/latest_frame.jpg` without accumulating historical disk files.
 
 ---
 
-## 6. Complete Execution & Testing Command Reference
+## 7. Command Reference & Validation
 
+### A. Environment Setup
 
-### A. Environment Setup & Dependencies
-
-#### 1. Create Virtual Environment:
+#### 1. Setup Virtual Environment:
 ```bash
+# Linux / Raspberry Pi:
 python -m venv .venv
+source .venv/bin/activate
+
+# Windows PowerShell:
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 ```
 
-#### 2. Activate Virtual Environment:
-* **Windows PowerShell:**
-  ```powershell
-  .\.venv\Scripts\Activate.ps1
-  ```
-* **Windows Command Prompt (CMD):**
-  ```cmd
-  .\.venv\Scripts\activate.bat
-  ```
-* **Linux / Raspberry Pi (Bash):**
-  ```bash
-  source .venv/bin/activate
-  ```
-
-#### 3. Install Python Dependencies:
+#### 2. Install Dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-#### 4. (Raspberry Pi Physical Hardware Only) Enable Interfaces & Install Drivers:
+#### 3. (Raspberry Pi Hardware Setup) Install System Drivers:
 ```bash
-# Enable I2C and Camera interfaces via GUI/CLI menu:
-sudo raspi-config
-
-# Install system libraries for camera and GPIO:
+sudo raspi-config                             # Interface Options -> Enable Camera
 sudo apt-get update
-sudo apt-get install -y python3-picamera2 libgpiod2 i2c-tools
-pip install adafruit-circuitpython-dht adafruit-circuitpython-ina219 opencv-python
+sudo apt-get install -y python3-picamera2 libgpiod2 libraspberrypi-bin
+pip install adafruit-circuitpython-dht opencv-python psutil
 ```
 
 ---
 
-### B. Sensor Module Execution & Smoke Testing
+### B. Execution & Verification Commands
 
-#### 1. Test All Sensors in Simulation/Hybrid Mode:
-Tests aggregated readings from DHT22, INA219, and CSI camera (overwrites `data/camera_captures/latest_frame.jpg`):
+#### 1. Test Raspberry Pi 3B+ Native Telemetry:
 ```bash
-python -m edge.sensors.simulated_source
+python -m edge.sensors.rpi_system_reader
 ```
 
-#### 2. Test Camera Reader Directly:
-Captures a live frame into RAM and overwrites `data/camera_captures/latest_frame.jpg`:
+#### 2. Test Unified Hardware Telemetry Hub:
+```bash
+python -m edge.sensors.telemetry_source
+```
+
+#### 3. Test Camera Frame Capture:
 ```bash
 python -m edge.sensors.camera_reader
 ```
 
-#### 3. Test Physical DHT22 Sensor (GPIO4):
+#### 4. Test DHT22 Sensor:
 ```bash
 python -m edge.sensors.dht22_reader
 ```
 
-#### 4. Test Physical INA219 Power Monitor (I2C):
-```bash
-python -m edge.sensors.ina219_power
-```
-
----
-
-### C. Pipeline Stage Execution
-
-#### 1. Run Stage 1 Data Acquisition Standalone:
-Acquires continuous windows of size $N=10$ and previews temperature, humidity, power rail, and camera frame payload:
+#### 5. Run Stage 1 Data Acquisition Standalone:
 ```bash
 python -m edge.stage1_acquisition
 ```
 
-#### 2. Run Stage 2 Feature Extraction Standalone:
-Validates feature extraction (Shannon Entropy, Variance, Rate of Change) across constant, ramp, and uniform noise series:
+#### 6. Run Stage 2 Feature Extraction Standalone:
 ```bash
 python -m edge.stage2_features
 ```
 
-#### 3. Run Pipeline End-to-End One-Liner:
-Acquires a live/simulated window and immediately extracts features in a single command:
+#### 7. Run Stage 1 + Stage 2 End-to-End Inline Test:
 ```bash
-python -c "from edge.stage1_acquisition import AcquisitionStage; from edge.stage2_features import FeatureExtractionStage; s1 = AcquisitionStage(window_size=10); s2 = FeatureExtractionStage(); win = s1.acquire_window(); feats = s2.extract_features(win); print('Acquired:', win); print('Features:', feats)"
+python -c "from edge.stage1_acquisition import AcquisitionStage; from edge.stage2_features import FeatureExtractionStage; s1 = AcquisitionStage(window_size=10); s2 = FeatureExtractionStage(); win = s1.acquire_window(); feats = s2.extract_features(win); print('Acquired Window:', win); print('Extracted Features:', feats)"
 ```
 
 ---
 
-### D. Automated Unit Test Suite
+### C. Automated Unit Test Suite
 
-#### 1. Run Entire Test Suite (19 Test Cases):
-```bash
-python -m unittest discover tests
-```
+Run the full automated test suite covering all sensor readers and pipeline stages:
 
-#### 2. Run Entire Test Suite with Verbose Output:
 ```bash
+# Run all 28 unit tests
 python -m unittest discover tests -v
+
+# Run specific test modules
+python -m unittest tests/test_rpi_system_reader.py
+python -m unittest tests/test_stage1.py
+python -m unittest tests/test_stage2.py
+python -m unittest tests/test_camera_reader.py
 ```
-
-#### 3. Run Specific Test Modules:
-* **Stage 1 (Acquisition & Partitioning):**
-  ```bash
-  python -m unittest tests/test_stage1.py
-  ```
-* **Stage 2 (Mathematical Bounds & Feature Extraction):**
-  ```bash
-  python -m unittest tests/test_stage2.py
-  ```
-* **Camera Reader & In-Memory / Folder Storage:**
-  ```bash
-  python -m unittest tests/test_camera_reader.py
-  ```
-
----
-
-### E. File System & Output Inspection
-
-#### 1. Inspect Overwritten Camera Frame File:
-* **Windows PowerShell:**
-  ```powershell
-  Get-Item data\camera_captures\latest_frame.jpg
-  ```
-* **Windows CMD:**
-  ```cmd
-  dir data\camera_captures
-  ```
-* **Linux / Raspberry Pi:**
-  ```bash
-  ls -lh data/camera_captures/latest_frame.jpg
-  ```
-
-#### 2. Inspect Telemetry & Decision Logs:
-* **Windows:**
-  ```cmd
-  type logs\decisions.csv
-  type logs\outcomes.csv
-  ```
-* **Linux / Raspberry Pi:**
-  ```bash
-  cat logs/decisions.csv
-  cat logs/outcomes.csv
-  ```
-
----
-
-## 7. Sample Outputs
-
-### 1. Simulated Source (`python -m edge.sensors.simulated_source`)
-```text
-=== Testing SimulatedSource Telemetry Generation ===
-
-[DHT22 Reading]
-  Temperature: 23.98 °C
-  Humidity:    60.12 %
-
-[INA219 Power Monitor]
-  Voltage:     5.07 V
-  Current:     441.85 mA
-  Power:       2240.18 mW
-
-[CSI Camera Module (In-Memory & Folder Overwrite)]
-  Frame ID:       1
-  Resolution:     (640, 480)
-  Format:         JPEG
-  RAM Size:       44 bytes
-  RAM Address:    0x23f9b2d07b0
-  BytesIO Object: <_io.BytesIO object at ...> (size: 44 bytes)
-  Saved Folder:   data/camera_captures/
-  Overwritten At: C:\Users\Vaibhav\Desktop\projects\project-1\data\camera_captures\latest_frame.jpg
-  Raw Preview:    b'FRAME_1_PAYLOAD_TIMESTAMP_1788171660.841'...
-
-=== SimulatedSource test complete ===
-```
-
-### 2. Camera Reader (`python -m edge.sensors.camera_reader`)
-```text
-=== Testing Camera Capture & Storage (Folder Overwrite Mode) ===
-[CameraReader] OpenCV VideoCapture initialized successfully.
-Capturing photo and overwriting destination folder...
-
-[Photo Capture Details]
-  Frame ID:       #1
-  Resolution:     (640, 480)
-  Format:         JPEG
-  RAM Size:       55794 bytes in RAM
-  BytesIO Stream: <_io.BytesIO object at ...> (size: 55794 bytes)
-  Saved Folder:   data/camera_captures/
-  Overwritten At: C:\Users\Vaibhav\Desktop\projects\project-1\data\camera_captures\latest_frame.jpg
-=== Capture Complete ===
-```
-
-### 3. Stage 1 Window Acquisition (`python -m edge.stage1_acquisition`)
-```text
-=== Stage 1: Data Acquisition Standalone Test ===
-Acquiring 3 windows with window_size=10...
-Emitted <Window id=1 type='numeric' samples=10 ts=1788171622.17>
-  First sample preview:
-    - Temperature: 23.79 °C
-    - Humidity:    59.65 %
-    - Power Rail:  5.087 V, 446.94 mA, 2273.58 mW
-    - Camera:      Frame #1 | Format: JPEG | Resolution: (640, 480) | Payload Size: 43 bytes
-  Serialized Window Byte Size: 5602 bytes
-```
-
-### 4. Stage 2 Feature Extraction (`python -m edge.stage2_features`)
-```text
-=== Stage 2: Feature Extraction Standalone Test ===
-Constant window: H=0.0000, var=0.0000, roc=0.0000
-Linear ramp window: H=4.0000, var=208.2500, roc=1.0000
-Uniform noise window (1000 samples, 16 bins): H=3.9926 (theoretical max ~ 4.0000)
-Stage 2 execution complete.
-```
-
-

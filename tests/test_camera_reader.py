@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from edge.sensors.camera_reader import CameraReader
 import edge.sensors.camera_reader as camera_module
-from edge.sensors.simulated_source import SimulatedSource
+from edge.sensors.telemetry_source import RPiTelemetryHub
 
 
 class TestCameraReader(unittest.TestCase):
@@ -28,16 +28,16 @@ class TestCameraReader(unittest.TestCase):
 
         reader.close()
 
-    def test_simulated_source_in_memory_camera_buffer(self):
-        """Verify SimulatedSource provides in-memory BytesIO camera buffer."""
-        source = SimulatedSource(use_real_hardware=False)
-        sample = source.read_all()
+    def test_telemetry_hub_in_memory_camera_buffer(self):
+        """Verify RPiTelemetryHub provides in-memory BytesIO camera buffer."""
+        hub = RPiTelemetryHub()
+        sample = hub.read_all()
         cam = sample["camera"]
 
         self.assertIn("image_bytes", cam)
         self.assertIsInstance(cam["image_bytes"], bytes)
 
-        buf = source.get_camera_in_memory_buffer()
+        buf = hub.get_camera_in_memory_buffer()
         self.assertIsInstance(buf, io.BytesIO)
         self.assertEqual(buf.read(), cam["image_bytes"])
 
@@ -88,5 +88,3 @@ class TestCameraReader(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-

@@ -1,5 +1,5 @@
 """
-Unit Tests for Stage 2: Feature Extraction
+Unit Tests for Stage 2: Feature Extraction (Raspberry Pi 3B+)
 """
 
 import unittest
@@ -71,7 +71,7 @@ class TestStage2Features(unittest.TestCase):
     def test_dict_sensor_samples_extraction(self):
         """Test feature extraction from telemetry dicts containing sensor keys."""
         sensor_data = [
-            {"temperature": 20.0 + i * 0.5, "humidity": 50.0 - i, "current_ma": 450.0}
+            {"temperature": 20.0 + i * 0.5, "humidity": 50.0 - i, "cpu_temp_c": 42.0 + i * 0.2}
             for i in range(10)
         ]
         win = Window(window_id=4, data=sensor_data, data_type="numeric")
@@ -88,6 +88,12 @@ class TestStage2Features(unittest.TestCase):
         self.assertAlmostEqual(hum_features["rate_of_change"], 1.0, places=3)
         self.assertAlmostEqual(hum_features["min_val"], 41.0, places=3)
         self.assertAlmostEqual(hum_features["max_val"], 50.0, places=3)
+
+        # Explicitly extract 'cpu_temp_c'
+        cpu_features = self.extractor.extract_features(win, feature_key="cpu_temp_c")
+        self.assertAlmostEqual(cpu_features["rate_of_change"], 0.2, places=3)
+        self.assertAlmostEqual(cpu_features["min_val"], 42.0, places=3)
+        self.assertAlmostEqual(cpu_features["max_val"], 43.8, places=3)
 
     def test_edge_cases_empty_and_single_sample(self):
         """Test graceful degradation with empty or single sample data."""

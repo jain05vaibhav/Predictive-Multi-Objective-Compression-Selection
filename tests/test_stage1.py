@@ -1,18 +1,18 @@
 """
-Unit Tests for Stage 1: Data Acquisition & Windowing
+Unit Tests for Stage 1: Data Acquisition & Windowing (Raspberry Pi 3B+)
 """
 
 import unittest
 import time
 from edge.stage1_acquisition import AcquisitionStage, Window
-from edge.sensors.simulated_source import SimulatedSource
+from edge.sensors.telemetry_source import RPiTelemetryHub
 
 
 class TestStage1Acquisition(unittest.TestCase):
 
     def test_window_object_properties(self):
         """Test Window dataclass methods, dict conversion, and byte serialization."""
-        raw_samples = [{"temperature": 24.5, "humidity": 55.0} for _ in range(10)]
+        raw_samples = [{"temperature": 24.5, "humidity": 55.0, "cpu_temp_c": 42.0} for _ in range(10)]
         win = Window(window_id=42, data=raw_samples, data_type="numeric", timestamp=1000.0)
 
         self.assertEqual(win.window_id, 42)
@@ -35,14 +35,14 @@ class TestStage1Acquisition(unittest.TestCase):
         self.assertEqual(win["window_id"], 42)
         self.assertEqual(win["sample_count"], 10)
 
-    def test_acquire_100_simulated_readings_partitions_into_100_over_n_windows(self):
+    def test_acquire_100_telemetry_readings_partitions_into_100_over_n_windows(self):
         """
-        Roadmap Verification: Feed 100 simulated readings, assert you get 100/N
+        Roadmap Verification: Feed 100 readings, assert you get 100/N
         windows each of size N.
         """
         n = 25
         total_samples = 100
-        source = SimulatedSource(use_real_hardware=False)
+        source = RPiTelemetryHub()
         stage = AcquisitionStage(source=source, window_size=n)
 
         # Collect 100 samples in total via 4 sequential windows

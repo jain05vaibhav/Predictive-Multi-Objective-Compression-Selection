@@ -1,5 +1,5 @@
 """
-Edge Node Configuration
+Edge Node Configuration (Raspberry Pi 3B+)
 """
 
 # Window & Algorithm Hyperparameters
@@ -13,5 +13,6 @@ WEIGHT_W2 = 0.3
 WEIGHT_W3 = 0.2
 WEIGHT_W4 = 0.1
 
-# Execution Toggles
-SIMULATION_MODE = True
+# Raspberry Pi 3B+ Hardware Settings
+RPI_VCGENCMD_BIN = "vcgencmd"
+DEFAULT_SAMPLE_TIMEOUT = 5.0

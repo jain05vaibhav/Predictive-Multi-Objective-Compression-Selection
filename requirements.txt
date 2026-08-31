@@ -6,3 +6,4 @@ Pillow
 pandas
 streamlit
 Flask
+psutil
