@@ -13,10 +13,14 @@ Allows building, testing, and demonstrating Stage 1 to Stage 7 without blocking 
 Toggle `USE_REAL_HARDWARE = True` when physical sensors arrive and are wired.
 """
 
+import io
+import os
 import time
 import math
 import random
 from typing import Dict, Any, Optional
+
+
 
 # Configuration flag: Set to True when physical Raspberry Pi hardware is wired and ready.
 # If False, or if hardware initialization fails, the backup simulation is automatically used.
@@ -29,15 +33,23 @@ class SimulatedSource:
     or delegates to physical hardware readers if USE_REAL_HARDWARE is enabled.
     """
 
-    def __init__(self, use_real_hardware: bool = USE_REAL_HARDWARE):
+    def __init__(
+        self,
+        use_real_hardware: bool = USE_REAL_HARDWARE,
+        output_dir: str = "data/camera_captures",
+        save_to_disk: bool = True
+    ):
         self.use_real_hardware = use_real_hardware
+        self.output_dir = output_dir
+        self.save_to_disk = save_to_disk
+        self.output_filename = "latest_frame.jpg"
         self.frame_counter = 0
         self.start_time = time.time()
 
-        # Sensor reader instances for physical hardware mode
         self.real_dht22 = None
         self.real_ina219 = None
         self.real_camera = None
+        self.last_camera: Optional[Dict[str, Any]] = None
 
         if self.use_real_hardware:
             self._init_real_hardware()
@@ -51,7 +63,8 @@ class SimulatedSource:
 
             self.real_dht22 = DHT22Reader()
             self.real_ina219 = INA219PowerReader()
-            self.real_camera = CameraReader()
+            self.real_camera = CameraReader(output_dir=self.output_dir, save_to_disk=self.save_to_disk)
+
         except Exception as e:
             # Fall back safely to simulation if hardware or libraries are missing
             print(f"[SimulatedSource Warning] Physical hardware setup failed ({e}). Falling back to simulation mode.")
@@ -119,6 +132,7 @@ class SimulatedSource:
             try:
                 reading = self.real_camera.capture_frame()
                 if reading:
+                    self.last_camera = reading
                     return reading
             except Exception:
                 pass  # Fallback to simulated reading on hardware error
@@ -126,13 +140,44 @@ class SimulatedSource:
         self.frame_counter += 1
         synthetic_payload = f"FRAME_{self.frame_counter}_PAYLOAD_TIMESTAMP_{time.time()}".encode("utf-8")
 
-        return {
+        saved_path = None
+        if self.save_to_disk:
+            os.makedirs(self.output_dir, exist_ok=True)
+            target_file = os.path.join(self.output_dir, self.output_filename)
+            with open(target_file, "wb") as f:
+                f.write(synthetic_payload)
+            saved_path = os.path.abspath(target_file)
+
+        result = {
             "frame_id": self.frame_counter,
             "resolution": (640, 480),
             "format": "JPEG",
             "image_bytes": synthetic_payload,
-            "size_bytes": len(synthetic_payload)
+            "size_bytes": len(synthetic_payload),
+            "saved_path": saved_path
         }
+        self.last_camera = result
+        return result
+
+    def get_camera_in_memory_buffer(self) -> io.BytesIO:
+        """
+        Returns an io.BytesIO in-memory stream of the latest camera photo.
+        Stream offset is seeked to 0 for immediate consumption.
+        """
+        if self.real_camera and hasattr(self.real_camera, "get_in_memory_buffer"):
+            return self.real_camera.get_in_memory_buffer()
+        if self.last_camera and "image_bytes" in self.last_camera:
+            buf = io.BytesIO(self.last_camera["image_bytes"])
+            buf.seek(0)
+            return buf
+        return io.BytesIO()
+
+    def save_camera_photo_in_memory(self) -> Dict[str, Any]:
+        """
+        Captures a camera photo and stores it in memory (RAM).
+        Returns the photo metadata dictionary.
+        """
+        return self.read_camera()
 
     def read_all(self) -> Dict[str, Any]:
         """
@@ -159,3 +204,36 @@ class SimulatedSource:
             "ina219": ina_data,
             "camera": cam_data
         }
+
+
+if __name__ == "__main__":
+    print("=== Testing SimulatedSource Telemetry Generation ===")
+    source = SimulatedSource()
+    sample = source.read_all()
+
+    print("\n[DHT22 Reading]")
+    print(f"  Temperature: {sample['dht22']['temperature_c']} °C")
+    print(f"  Humidity:    {sample['dht22']['humidity_percent']} %")
+
+    print("\n[INA219 Power Monitor]")
+    print(f"  Voltage:     {sample['ina219']['voltage_v']} V")
+    print(f"  Current:     {sample['ina219']['current_ma']} mA")
+    print(f"  Power:       {sample['ina219']['power_mw']} mW")
+
+    print("\n[CSI Camera Module (In-Memory & Folder Overwrite)]")
+    cam = sample['camera']
+    mem_stream = source.get_camera_in_memory_buffer()
+    print(f"  Frame ID:       {cam['frame_id']}")
+    print(f"  Resolution:     {cam['resolution']}")
+    print(f"  Format:         {cam['format']}")
+    print(f"  RAM Size:       {cam['size_bytes']} bytes")
+    print(f"  RAM Address:    {hex(id(cam['image_bytes']))}")
+    print(f"  BytesIO Object: {mem_stream} (size: {mem_stream.getbuffer().nbytes} bytes)")
+    print(f"  Saved Folder:   {source.output_dir}/")
+    print(f"  Overwritten At: {cam.get('saved_path', 'N/A')}")
+    print(f"  Raw Preview:    {cam['image_bytes'][:40]}...")
+
+    print("\n=== SimulatedSource test complete ===")
+
+
+

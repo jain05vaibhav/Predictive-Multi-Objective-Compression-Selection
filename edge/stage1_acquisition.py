@@ -169,8 +169,15 @@ if __name__ == "__main__":
         print(f"Emitted {w}")
         if w.data:
             sample_preview = w.data[0]
-            print(f"  First sample preview: temp={sample_preview.get('temperature', 'N/A')}°C, "
-                  f"humidity={sample_preview.get('humidity', 'N/A')}%, "
-                  f"current={sample_preview.get('current_ma', 'N/A')}mA")
-            print(f"  Serialized byte size: {len(w.to_bytes())} bytes")
+            cam_preview = sample_preview.get("camera", {})
+            print(f"  First sample preview:")
+            print(f"    - Temperature: {sample_preview.get('temperature', 'N/A')} °C")
+            print(f"    - Humidity:    {sample_preview.get('humidity', 'N/A')} %")
+            print(f"    - Power Rail:  {sample_preview.get('voltage_v', 'N/A')} V, {sample_preview.get('current_ma', 'N/A')} mA, {sample_preview.get('power_mw', 'N/A')} mW")
+            print(f"    - Camera:      Frame #{cam_preview.get('frame_id', 'N/A')} | "
+                  f"Format: {cam_preview.get('format', 'JPEG')} | "
+                  f"Resolution: {cam_preview.get('resolution', (640, 480))} | "
+                  f"Payload Size: {cam_preview.get('size_bytes', len(cam_preview.get('image_bytes', b'')))} bytes")
+            print(f"  Serialized Window Byte Size: {len(w.to_bytes())} bytes")
     print("Stage 1 execution complete.")
+

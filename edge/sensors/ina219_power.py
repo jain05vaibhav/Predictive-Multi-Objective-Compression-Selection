@@ -56,3 +56,17 @@ class INA219PowerReader:
             "current_ma": round(current_ma, 2),
             "power_mw": round(power_mw, 2)
         }
+
+
+if __name__ == "__main__":
+    print("=== Testing INA219 Power Reader on Raspberry Pi ===")
+    try:
+        reader = INA219PowerReader()
+        data = reader.read_power()
+        print(f"Bus Voltage:   {data.get('voltage_v', 'N/A')} V")
+        print(f"Current Draw:  {data.get('current_ma', 'N/A')} mA")
+        print(f"Power Draw:    {data.get('power_mw', 'N/A')} mW")
+        print(f"Shunt Voltage: {data.get('shunt_voltage_mv', 'N/A')} mV")
+    except Exception as e:
+        print(f"INA219 hardware read failed: {e}")
+

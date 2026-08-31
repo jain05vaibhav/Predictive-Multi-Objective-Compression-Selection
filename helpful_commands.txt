@@ -1,23 +1,88 @@
+================================================================================
+PREDICTIVE MULTI-OBJECTIVE COMPRESSION SELECTION - CLI COMMAND CHEATSHEET
+================================================================================
 
+1. ENVIRONMENT SETUP & DEPENDENCIES
+--------------------------------------------------------------------------------
+# Create Python Virtual Environment:
+python -m venv .venv
 
+# Activate Virtual Environment (Windows PowerShell):
+.\.venv\Scripts\Activate.ps1
 
-
-
-
-to create an env
-
-python -m venv venv
-
-
-
-
-
-enable python env 
-
+# Activate Virtual Environment (Windows CMD):
 .\.venv\Scripts\activate.bat
 
+# Activate Virtual Environment (Linux / Raspberry Pi Bash):
+source .venv/bin/activate
 
-
-install the reqs
-
+# Install Project Requirements:
 pip install -r requirements.txt
+
+# (Raspberry Pi Only) Hardware Libraries & Interfaces:
+sudo raspi-config                             # Enable I2C and Camera interfaces
+sudo apt-get update
+sudo apt-get install -y python3-picamera2 libgpiod2 i2c-tools
+pip install adafruit-circuitpython-dht adafruit-circuitpython-ina219 opencv-python
+
+
+2. SENSOR MODULE EXECUTION & TESTING
+--------------------------------------------------------------------------------
+# Test Combined Simulated Telemetry (DHT22 + INA219 + Camera):
+python -m edge.sensors.simulated_source
+
+# Test CSI / USB Camera Reader (Captures in RAM & overwrites latest_frame.jpg):
+python -m edge.sensors.camera_reader
+
+# Test DHT22 Hardware Sensor (GPIO4):
+python -m edge.sensors.dht22_reader
+
+# Test INA219 Power Monitor Sensor (I2C):
+python -m edge.sensors.ina219_power
+
+
+3. PIPELINE STAGE EXECUTION
+--------------------------------------------------------------------------------
+# Run Stage 1 Data Acquisition & Windowing Standalone:
+python -m edge.stage1_acquisition
+
+# Run Stage 2 Feature Extraction Standalone (Entropy, Variance, RoC):
+python -m edge.stage2_features
+
+# Run Stage 1 + Stage 2 End-to-End Inline Test:
+python -c "from edge.stage1_acquisition import AcquisitionStage; from edge.stage2_features import FeatureExtractionStage; s1 = AcquisitionStage(window_size=10); s2 = FeatureExtractionStage(); win = s1.acquire_window(); feats = s2.extract_features(win); print('Acquired Window:', win); print('Extracted Features:', feats)"
+
+
+4. AUTOMATED UNIT TESTS & VALIDATION
+--------------------------------------------------------------------------------
+# Run All Unit Tests Across Entire Suite (19 test cases):
+python -m unittest discover tests
+
+# Run All Unit Tests with Verbose Output:
+python -m unittest discover tests -v
+
+# Run Stage 1 Tests Only:
+python -m unittest tests/test_stage1.py
+
+# Run Stage 2 Tests Only:
+python -m unittest tests/test_stage2.py
+
+# Run Camera Reader & In-Memory Storage Tests Only:
+python -m unittest tests/test_camera_reader.py
+
+
+5. OUTPUT INSPECTION & VERIFICATION
+--------------------------------------------------------------------------------
+# Check Overwritten Camera Photo on Windows PowerShell:
+Get-Item data\camera_captures\latest_frame.jpg
+
+# Check Overwritten Camera Photo on Windows CMD:
+dir data\camera_captures
+
+# Check Overwritten Camera Photo on Linux / Raspberry Pi:
+ls -lh data/camera_captures/latest_frame.jpg
+
+# View Logged Decision CSV:
+type logs\decisions.csv                       # Windows
+cat logs/decisions.csv                        # Linux / Mac
+================================================================================

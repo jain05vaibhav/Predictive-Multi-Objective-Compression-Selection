@@ -52,3 +52,15 @@ class DHT22Reader:
             print(f"[DHT22 Error] Reading failed: {error.args[0]}")
 
         return {}
+
+
+if __name__ == "__main__":
+    print("=== Testing DHT22 Hardware Reader on Raspberry Pi ===")
+    try:
+        reader = DHT22Reader()
+        data = reader.read()
+        print(f"Temperature: {data.get('temperature_c', 'N/A')} °C")
+        print(f"Humidity:    {data.get('humidity_percent', 'N/A')} %")
+    except Exception as e:
+        print(f"DHT22 hardware read failed: {e}")
+
