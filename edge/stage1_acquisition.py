@@ -83,7 +83,9 @@ class AcquisitionStage:
         max_wait_time: float = 5.0,
         data_type: str = "numeric"
     ):
-        self.source = source if source is not None else SimulatedSource()
+        # Prefer the actual Raspberry Pi DHT22 path by default; automatically falls back
+        # to simulation if hardware initialization fails or the sensor libraries are missing.
+        self.source = source if source is not None else SimulatedSource(use_real_hardware=True)
         self.window_size = window_size
         self.max_wait_time = max_wait_time
         self.data_type = data_type
