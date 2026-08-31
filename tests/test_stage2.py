@@ -4,7 +4,7 @@ Unit Tests for Stage 2: Feature Extraction (Raspberry Pi 3B+)
 
 import unittest
 import math
-import numpy as np
+import random
 from edge.stage1_acquisition import Window
 from edge.stage2_features import FeatureExtractionStage
 
@@ -34,9 +34,9 @@ class TestStage2Features(unittest.TestCase):
         Roadmap Verification: Feed uniform random noise -> expect entropy near log2(num_buckets).
         For num_bins=16, theoretical max entropy is log2(16) = 4.0.
         """
-        np.random.seed(42)
+        random.seed(42)
         # Uniform spread across [0, 100] with 5000 samples to fill all 16 bins equally
-        uniform_data = list(np.random.uniform(0.0, 100.0, size=5000))
+        uniform_data = [random.uniform(0.0, 100.0) for _ in range(5000)]
         win = Window(window_id=2, data=uniform_data, data_type="numeric")
         features = self.extractor.extract_features(win)
 

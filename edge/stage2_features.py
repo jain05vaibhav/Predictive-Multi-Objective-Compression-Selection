@@ -10,7 +10,12 @@ Compresses each acquired Window into a compact feature vector containing:
 
 import math
 from typing import List, Dict, Any, Union, Optional
-import numpy as np
+
+try:
+    import numpy as np
+    HAS_NUMPY = True
+except (ImportError, Exception):
+    HAS_NUMPY = False
 
 
 class FeatureExtractionStage:
@@ -23,25 +28,27 @@ class FeatureExtractionStage:
     def __init__(self, num_bins: int = 16):
         self.num_bins = num_bins
 
-    def _extract_numeric_series(self, data: List[Any], feature_key: Optional[str] = None) -> np.ndarray:
+    def _extract_numeric_series(self, data: List[Any], feature_key: Optional[str] = None) -> List[float]:
         """
-        Extracts a clean 1D numpy float array from various sample structures
+        Extracts a clean 1D list of floats from various sample structures
         (primitives, dicts, arrays).
         """
         if not data:
-            return np.array([], dtype=float)
+            return []
 
         first_sample = data[0]
 
         # Case 1: List of numeric values (int/float)
-        if isinstance(first_sample, (int, float, np.number)):
-            return np.array(data, dtype=float)
+        if isinstance(first_sample, (int, float)):
+            return [float(x) for x in data if isinstance(x, (int, float))]
+        elif HAS_NUMPY and isinstance(first_sample, np.number):
+            return [float(x) for x in data]
 
         # Case 2: List of telemetry dictionaries (e.g. DHT22 / RPi 3B+ system metrics)
         if isinstance(first_sample, dict):
             # If feature_key specified, extract it directly
             if feature_key and feature_key in first_sample:
-                return np.array([float(s[feature_key]) for s in data if s.get(feature_key) is not None], dtype=float)
+                return [float(s[feature_key]) for s in data if s.get(feature_key) is not None and isinstance(s.get(feature_key), (int, float))]
 
             # Check nested sections if feature_key is specified (e.g. "system.cpu_temp_c" or "cpu_temp_c")
             if feature_key:
@@ -57,7 +64,7 @@ class FeatureExtractionStage:
                     if val is not None and isinstance(val, (int, float)):
                         extracted.append(float(val))
                 if extracted:
-                    return np.array(extracted, dtype=float)
+                    return extracted
 
             # Preference order for primary numeric signal
             candidate_keys = [
@@ -66,24 +73,24 @@ class FeatureExtractionStage:
             ]
             for key in candidate_keys:
                 if key in first_sample and isinstance(first_sample[key], (int, float)):
-                    return np.array([float(s[key]) for s in data if s.get(key) is not None], dtype=float)
+                    return [float(s[key]) for s in data if s.get(key) is not None and isinstance(s.get(key), (int, float))]
 
             # Fallback: extract the first numeric field found in the dict
             for k, v in first_sample.items():
                 if isinstance(v, (int, float)):
-                    return np.array([float(s[k]) for s in data if s.get(k) is not None and isinstance(s.get(k), (int, float))], dtype=float)
+                    return [float(s[k]) for s in data if s.get(k) is not None and isinstance(s.get(k), (int, float))]
 
         # Case 3: List of bytes/strings
         if isinstance(first_sample, (bytes, bytearray, str)):
-            byte_values = []
+            byte_values: List[float] = []
             for item in data:
                 raw = item.encode("utf-8") if isinstance(item, str) else bytes(item)
-                byte_values.extend(list(raw))
-            return np.array(byte_values, dtype=float)
+                byte_values.extend([float(b) for b in raw])
+            return byte_values
 
-        return np.array([], dtype=float)
+        return []
 
-    def compute_shannon_entropy(self, series: np.ndarray, num_bins: Optional[int] = None) -> float:
+    def compute_shannon_entropy(self, series: Union[List[float], Any], num_bins: Optional[int] = None) -> float:
         """
         Computes Shannon entropy H = -sum(p_i * log2(p_i)) over discretized histogram bins.
         Returns 0.0 for uniform/constant series, and approaches log2(num_bins) for max entropy noise.
@@ -92,39 +99,50 @@ class FeatureExtractionStage:
             return 0.0
 
         bins = num_bins if num_bins is not None else self.num_bins
+        val_min, val_max = float(min(series)), float(max(series))
 
         # If constant signal (min == max), all probability is concentrated in one bin -> H = 0.0
-        val_min, val_max = float(np.min(series)), float(np.max(series))
         if math.isclose(val_min, val_max, rel_tol=1e-9, abs_tol=1e-9):
             return 0.0
 
-        # Construct histogram counts
-        counts, _ = np.histogram(series, bins=bins, range=(val_min, val_max))
         total_samples = len(series)
+        bin_width = (val_max - val_min) / bins
+        if bin_width == 0:
+            return 0.0
 
-        # Calculate probability distribution p_i
-        probabilities = counts[counts > 0] / total_samples
+        counts = [0] * bins
+        for x in series:
+            idx = int((x - val_min) / bin_width)
+            if idx >= bins:
+                idx = bins - 1
+            elif idx < 0:
+                idx = 0
+            counts[idx] += 1
 
-        # Shannon entropy calculation
-        entropy = -np.sum(probabilities * np.log2(probabilities))
+        probabilities = [c / total_samples for c in counts if c > 0]
+        entropy = -sum(p * math.log2(p) for p in probabilities)
         return float(round(entropy, 4))
 
-    def compute_variance(self, series: np.ndarray) -> float:
+    def compute_variance(self, series: Union[List[float], Any]) -> float:
         """
-        Computes statistical variance sigma^2 of the series.
+        Computes statistical variance sigma^2 of the series (ddof=0).
         """
-        if len(series) <= 1:
+        n = len(series)
+        if n <= 1:
             return 0.0
-        return float(round(np.var(series, ddof=0), 4))
+        mean_val = sum(series) / n
+        var = sum((x - mean_val) ** 2 for x in series) / n
+        return float(round(var, 4))
 
-    def compute_rate_of_change(self, series: np.ndarray) -> float:
+    def compute_rate_of_change(self, series: Union[List[float], Any]) -> float:
         """
         Computes mean step-to-step absolute difference: mean(|x[t] - x[t-1]|).
         """
-        if len(series) <= 1:
+        n = len(series)
+        if n <= 1:
             return 0.0
-        diffs = np.abs(np.diff(series))
-        return float(round(np.mean(diffs), 4))
+        diff_sum = sum(abs(series[i] - series[i - 1]) for i in range(1, n))
+        return float(round(diff_sum / (n - 1), 4))
 
     def extract_features(
         self,
@@ -193,9 +211,9 @@ class FeatureExtractionStage:
             "entropy": entropy,
             "variance": variance,
             "rate_of_change": rate_of_change,
-            "min_val": float(round(np.min(series), 4)),
-            "max_val": float(round(np.max(series), 4)),
-            "mean_val": float(round(np.mean(series), 4))
+            "min_val": float(round(min(series), 4)),
+            "max_val": float(round(max(series), 4)),
+            "mean_val": float(round(sum(series) / sample_count, 4))
         }
 
 
@@ -214,8 +232,10 @@ if __name__ == "__main__":
     print(f"Linear ramp window: H={ramp_feats['entropy']:.4f}, var={ramp_feats['variance']:.4f}, roc={ramp_feats['rate_of_change']:.4f}")
 
     # 3. Uniform Random Noise Window Test (High Entropy -> log2(16) = 4.0)
-    np.random.seed(42)
-    noise_win = {"window_id": 3, "data": list(np.random.uniform(0, 100, 1000)), "data_type": "numeric"}
+    import random
+    random.seed(42)
+    noise_data = [random.uniform(0.0, 100.0) for _ in range(1000)]
+    noise_win = {"window_id": 3, "data": noise_data, "data_type": "numeric"}
     noise_feats = extractor.extract_features(noise_win)
     print(f"Uniform noise window (1000 samples, 16 bins): H={noise_feats['entropy']:.4f} (theoretical max ~ 4.0000)")
     print("Stage 2 execution complete.")
