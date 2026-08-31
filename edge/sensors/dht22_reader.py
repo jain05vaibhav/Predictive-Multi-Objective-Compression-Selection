@@ -8,7 +8,7 @@ Hardware Wiring:
 
 Required Libraries on Raspberry Pi OS:
   pip install adafruit-circuitpython-dht
-  sudo apt-get install libgpiod2
+  sudo apt-get install -y libgpiod2
 """
 
 from typing import Dict, Any, Optional
@@ -25,19 +25,22 @@ class DHT22Reader:
     """Reads physical DHT22 sensor connected to Raspberry Pi GPIO pin."""
 
     def __init__(self, pin=None):
-        if not HAS_HARDWARE_LIBS:
-            self.dht_device = None
-        else:
-            # Default to GPIO4 (board.D4)
-            gpio_pin = pin if pin is not None else board.D4
-            self.dht_device = adafruit_dht.DHT22(gpio_pin)
+        self.dht_device = None
+        if HAS_HARDWARE_LIBS:
+            try:
+                # Default to GPIO4 (board.D4)
+                gpio_pin = pin if pin is not None else board.D4
+                self.dht_device = adafruit_dht.DHT22(gpio_pin)
+            except Exception:
+                self.dht_device = None
 
     def read(self) -> Dict[str, float]:
         """
         Reads temperature (°C) and relative humidity (%) from the physical DHT22 sensor.
+        Returns empty dict on transient read errors (common in single-wire pulse sensors) or if unattached.
         """
         if not self.dht_device:
-            raise RuntimeError("DHT22 hardware libraries (adafruit-circuitpython-dht) not available.")
+            return {}
 
         try:
             temperature_c = self.dht_device.temperature
@@ -48,19 +51,28 @@ class DHT22Reader:
                     "temperature_c": round(temperature_c, 2),
                     "humidity_percent": round(humidity, 2)
                 }
-        except RuntimeError as error:
-            print(f"[DHT22 Error] Reading failed: {error.args[0]}")
+        except Exception:
+            pass
 
         return {}
+
+    def close(self):
+        """Releases GPIO hardware line."""
+        if self.dht_device:
+            try:
+                self.dht_device.exit()
+            except Exception:
+                pass
+            self.dht_device = None
 
 
 if __name__ == "__main__":
     print("=== Testing DHT22 Hardware Reader on Raspberry Pi ===")
-    try:
-        reader = DHT22Reader()
-        data = reader.read()
+    reader = DHT22Reader()
+    data = reader.read()
+    if data:
         print(f"Temperature: {data.get('temperature_c', 'N/A')} °C")
         print(f"Humidity:    {data.get('humidity_percent', 'N/A')} %")
-    except Exception as e:
-        print(f"DHT22 hardware read failed: {e}")
-
+    else:
+        print("DHT22 sensor not responding (check 3.3V, GPIO4 pin 7, GND, and 10k pull-up resistor).")
+    reader.close()

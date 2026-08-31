@@ -42,13 +42,16 @@ class TestStage1Acquisition(unittest.TestCase):
         """
         n = 25
         total_samples = 100
-        source = RPiTelemetryHub()
-        stage = AcquisitionStage(source=source, window_size=n)
+        sample_pool = [
+            {"temperature": 24.0 + (i % 5) * 0.1, "humidity": 55.0, "cpu_temp_c": 45.0}
+            for i in range(total_samples)
+        ]
+        stage = AcquisitionStage(source=sample_pool, window_size=n)
 
         # Collect 100 samples in total via 4 sequential windows
         windows = []
         for _ in range(total_samples // n):
-            w = stage.acquire_window(window_size=n)
+            w = stage.acquire_window(source=sample_pool, window_size=n)
             windows.append(w)
 
         self.assertEqual(len(windows), 4)  # 100 / 25 = 4 windows
@@ -89,11 +92,20 @@ class TestStage1Acquisition(unittest.TestCase):
 
     def test_stream_windows_generator(self):
         """Test stream_windows generator produces correct number of windows."""
-        stage = AcquisitionStage(window_size=5)
+        sample_pool = [{"temperature": 25.0, "humidity": 50.0} for _ in range(15)]
+        stage = AcquisitionStage(source=sample_pool, window_size=5)
         stream = list(stage.stream_windows(max_windows=3, sample_interval=0.0))
         self.assertEqual(len(stream), 3)
         for w in stream:
             self.assertEqual(w.sample_count, 5)
+
+    def test_acquire_from_live_telemetry_hub(self):
+        """Test acquiring a window from live RPiTelemetryHub."""
+        source = RPiTelemetryHub()
+        stage = AcquisitionStage(source=source, window_size=1, max_wait_time=5.0)
+        win = stage.acquire_window()
+        self.assertGreater(win.sample_count, 0)
+        self.assertIn("timestamp", win.data[0])
 
 
 if __name__ == "__main__":
