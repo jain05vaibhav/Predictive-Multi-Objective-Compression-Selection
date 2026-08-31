@@ -12,11 +12,13 @@ Required Libraries on Raspberry Pi OS:
 """
 
 from typing import Dict, Any, Optional
+import io
 import os
 import shutil
 import subprocess
 import tempfile
 import time
+
 
 # Support Linux/Raspberry Pi case-sensitive module import
 try:
@@ -39,16 +41,29 @@ except ImportError:
 class CameraReader:
     """Captures real camera frames using Picamera2, OpenCV, or the native libcamera/rpicam CLI."""
 
-    def __init__(self, resolution: tuple = (640, 480)):
+    def __init__(
+        self,
+        resolution: tuple = (640, 480),
+        output_dir: str = "data/camera_captures",
+        save_to_disk: bool = True
+    ):
         self.resolution = resolution
+        self.output_dir = output_dir
+        self.save_to_disk = save_to_disk
+        self.output_filename = "latest_frame.jpg"
         self.frame_counter = 0
         self.picam2 = None
         self.cap = None
         self.cli_still_cmd = None
         self.cli_video_cmd = None
         self.cli_camera_available = False
+        self.last_frame: Optional[Dict[str, Any]] = None
+        self.memory_buffer: Optional[io.BytesIO] = None
 
         self._detect_cli_camera()
+
+
+
 
         if HAS_PICAM2:
             try:
@@ -141,13 +156,65 @@ class CameraReader:
         if not image_bytes:
             image_bytes = f"FRAME_{self.frame_counter}_BYTES_{time.time()}".encode("utf-8")
 
-        return {
+        # Create dedicated in-memory byte buffer (RAM stream)
+        self.memory_buffer = io.BytesIO(image_bytes)
+
+        saved_path = None
+        if self.save_to_disk:
+            os.makedirs(self.output_dir, exist_ok=True)
+            target_file = os.path.join(self.output_dir, self.output_filename)
+            with open(target_file, "wb") as f:
+                f.write(image_bytes)
+            saved_path = os.path.abspath(target_file)
+
+        result = {
             "frame_id": self.frame_counter,
             "resolution": self.resolution,
             "format": "JPEG",
             "image_bytes": image_bytes,
-            "size_bytes": len(image_bytes)
+            "size_bytes": len(image_bytes),
+            "memory_buffer": self.memory_buffer,
+            "saved_path": saved_path
         }
+        self.last_frame = result
+        return result
+
+    def get_in_memory_buffer(self) -> io.BytesIO:
+        """
+        Returns an io.BytesIO in-memory stream of the latest captured photo.
+        The stream position is reset to offset 0 for reading.
+        """
+        if self.memory_buffer is not None:
+            self.memory_buffer.seek(0)
+            return self.memory_buffer
+        if self.last_frame and "image_bytes" in self.last_frame:
+            self.memory_buffer = io.BytesIO(self.last_frame["image_bytes"])
+            self.memory_buffer.seek(0)
+            return self.memory_buffer
+        return io.BytesIO()
+
+    def save_photo_in_memory(self) -> Dict[str, Any]:
+        """
+        Captures a photo and saves it in memory (RAM) as well as the output folder.
+        Returns the photo metadata dictionary.
+        """
+        return self.capture_frame()
+
+    def save_photo(self, file_name: Optional[str] = None) -> str:
+        """
+        Saves/overwrites the captured photo to disk in output_dir.
+        Returns the absolute file path.
+        """
+        if self.last_frame is None:
+            self.capture_frame()
+        target_name = file_name if file_name is not None else self.output_filename
+        os.makedirs(self.output_dir, exist_ok=True)
+        target_file = os.path.join(self.output_dir, target_name)
+        with open(target_file, "wb") as f:
+            f.write(self.last_frame["image_bytes"])
+        abs_path = os.path.abspath(target_file)
+        self.last_frame["saved_path"] = abs_path
+        return abs_path
 
     def capture_video(self, duration_ms: int = 2000, framerate: int = 30) -> Dict[str, Any]:
         """Capture a short MP4 clip using the native Raspberry Pi video camera tool."""
@@ -210,26 +277,27 @@ class CameraReader:
 
 # Standalone Smoke-Test Script when run directly on Raspberry Pi
 if __name__ == "__main__":
-    print("=== Testing CameraReader on Raspberry Pi ===")
-    camera = CameraReader(resolution=(640, 480))
+    print("=== Testing Camera Capture & Storage (Folder Overwrite Mode) ===")
+    camera = CameraReader(resolution=(640, 480), output_dir="data/camera_captures")
     
     # Give sensor a moment to warm up
     time.sleep(1)
 
-    print("Capturing test frame...")
+    print("Capturing photo and overwriting destination folder...")
     frame_data = camera.capture_frame()
+    mem_stream = camera.get_in_memory_buffer()
 
-    print(f"Status: Captured Frame #{frame_data['frame_id']}")
-    print(f"Resolution: {frame_data['resolution']}")
-    print(f"Format: {frame_data['format']}")
-    print(f"Payload Size: {frame_data['size_bytes']} bytes")
-
-    # Save test image to disk if real JPEG bytes were captured
-    if frame_data["size_bytes"] > 100:
-        with open("test_frame.jpg", "wb") as f:
-            f.write(frame_data["image_bytes"])
-        print("Success! Captured real image saved to 'test_frame.jpg'")
-    else:
-        print("Fallback payload returned (Hardware camera not detected).")
+    print(f"\n[Photo Capture Details]")
+    print(f"  Frame ID:       #{frame_data['frame_id']}")
+    print(f"  Resolution:     {frame_data['resolution']}")
+    print(f"  Format:         {frame_data['format']}")
+    print(f"  RAM Size:       {frame_data['size_bytes']} bytes in RAM")
+    print(f"  BytesIO Stream: {mem_stream} (size: {mem_stream.getbuffer().nbytes} bytes)")
+    print(f"  Saved Folder:   {camera.output_dir}/")
+    print(f"  Overwritten At: {frame_data['saved_path']}")
 
     camera.close()
+    print("=== Capture Complete ===")
+
+
+
