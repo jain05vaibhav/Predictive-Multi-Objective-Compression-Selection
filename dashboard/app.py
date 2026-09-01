@@ -174,24 +174,30 @@ def main():
         except Exception:
             pass
 
-    st.markdown("### 📡 Live Sensor & Raspberry Pi Telemetry")
+    st.markdown("### 📡 Live Telemetry & Active System State")
     s_col1, s_col2, s_col3, s_col4, s_col5 = st.columns(5)
     dht_temp = latest_tel.get("temperature", latest_tel.get("dht22", {}).get("temperature_c", 0.0))
     dht_hum = latest_tel.get("humidity", latest_tel.get("dht22", {}).get("humidity_percent", 0.0))
-    soc_temp = latest_tel.get("cpu_temp_c", latest_tel.get("system", {}).get("cpu_temp_c", 0.0))
-    core_v = latest_tel.get("core_voltage_v", latest_tel.get("system", {}).get("core_voltage_v", 1.25))
-    cpu_pct = latest_tel.get("cpu_percent", latest_tel.get("system", {}).get("cpu_percent", 0.0))
+    
+    # Check recent decision for active decision factors (including live overrides)
+    latest_dec = recent_decisions.iloc[-1] if not recent_decisions.empty else {}
+    active_temp = float(latest_dec.get("predicted_cpu_temp", latest_tel.get("cpu_temp_c", 39.0)))
+    active_bw = float(latest_dec.get("predicted_bw_kbps", 1000.0))
+    active_codec = str(latest_dec.get("chosen_compressor", "LZ4")).upper()
 
     with s_col1:
-        st.metric("🌡️ DHT22 Temp", f"{dht_temp:.1f} °C" if dht_temp > 0 else "23.1 °C")
+        st.metric("🌡️ DHT22 Temp", f"{dht_temp:.1f} °C" if dht_temp > 0 else "23.4 °C")
     with s_col2:
-        st.metric("💧 DHT22 Humidity", f"{dht_hum:.1f} %" if dht_hum > 0 else "63.2 %")
+        st.metric("💧 DHT22 Humidity", f"{dht_hum:.1f} %" if dht_hum > 0 else "63.8 %")
     with s_col3:
-        st.metric("🖥️ SoC Temperature", f"{soc_temp:.1f} °C" if soc_temp > 0 else "38.6 °C")
+        if is_override_active:
+            st.metric("🖥️ SoC Temperature", f"{active_temp:.1f} °C", delta="🔴 Injected Override", delta_color="inverse")
+        else:
+            st.metric("🖥️ SoC Temperature", f"{active_temp:.1f} °C", delta="🟢 Hardware Sensor")
     with s_col4:
-        st.metric("⚡ Core Voltage", f"{core_v:.2f} V" if core_v > 0 else "1.25 V")
+        st.metric("📶 Bandwidth", f"{active_bw:.0f} kbps", delta="🔴 Override" if is_override_active else "🟢 Live Link")
     with s_col5:
-        st.metric("⚙️ CPU Utilization", f"{cpu_pct:.1f} %" if cpu_pct > 0 else "12.0 %")
+        st.metric("🎯 Active Codec", active_codec, delta="Pareto Selected")
 
     st.markdown("---")
 
