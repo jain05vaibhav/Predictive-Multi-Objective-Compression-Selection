@@ -130,6 +130,8 @@ class CameraReader:
             cmd = [
                 self.cli_still_cmd,
                 "-n",
+                "-t", "500",
+                "-q", "75",
                 "--width",
                 str(width),
                 "--height",
@@ -138,10 +140,11 @@ class CameraReader:
                 temp_path,
             ]
             with open(os.devnull, "w") as devnull:
-                subprocess.run(cmd, check=True, stdout=devnull, stderr=devnull, timeout=5.0)
+                subprocess.run(cmd, check=True, stdout=devnull, stderr=devnull, timeout=10.0)
             with open(temp_path, "rb") as f:
                 return f.read()
-        except Exception:
+        except Exception as e:
+            print(f"[CameraReader Error] CLI capture failed: {e}")
             return b""
         finally:
             if os.path.exists(temp_path):
