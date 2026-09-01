@@ -170,8 +170,8 @@ def main():
             if not recent_decisions.empty and "chosen_compressor" in recent_decisions.columns:
                 codec_counts = recent_decisions["chosen_compressor"].value_counts()
                 st.bar_chart(codec_counts)
-            elif not recent_decisions.empty and "compressor" in recent_decisions.columns:
-                codec_counts = recent_decisions["compressor"].value_counts()
+            elif not recent_outcomes.empty and "compressor" in recent_outcomes.columns:
+                codec_counts = recent_outcomes["compressor"].value_counts()
                 st.bar_chart(codec_counts)
             else:
                 st.info("Awaiting decision codec logs...")

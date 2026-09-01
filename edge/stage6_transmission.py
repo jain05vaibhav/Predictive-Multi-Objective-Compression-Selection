@@ -110,13 +110,28 @@ class TransmissionStage:
         rtt_ms = 0.0
 
         if self.enable_network and not force_offline:
-            # Prepare transmission packet (metadata header + payload)
+            # Prepare transmission packet (rich metadata header + payload)
+            adapted_w = decision.get("adapted_weights", {}) if decision else {}
             header_json = json.dumps({
                 "window_id": window_id,
                 "timestamp": now,
                 "compressor": compressor,
+                "compression_level": compressed_result.get("compression_level", 1),
                 "raw_size": raw_size,
-                "comp_size": comp_size
+                "comp_size": comp_size,
+                "execution_time_ms": compressed_result.get("execution_time_ms", 0.0),
+                "cpu_energy_proxy_uj": compressed_result.get("cpu_energy_proxy_uj", 0.0),
+                "entropy": decision.get("entropy", 0.0) if decision else 0.0,
+                "variance": decision.get("variance", 0.0) if decision else 0.0,
+                "predicted_cpu_temp": decision.get("predicted_cpu_temp", 0.0) if decision else 0.0,
+                "predicted_cpu_load": decision.get("predicted_cpu_load", 0.0) if decision else 0.0,
+                "predicted_bw_kbps": decision.get("predicted_bw_kbps", 1000.0) if decision else 1000.0,
+                "throttling_risk": decision.get("throttling_risk", False) if decision else False,
+                "composite_score": decision.get("composite_score", 0.0) if decision else 0.0,
+                "w1_ratio": adapted_w.get("w1_ratio", 0.4),
+                "w2_energy": adapted_w.get("w2_energy", 0.3),
+                "w3_latency": adapted_w.get("w3_latency", 0.2),
+                "w4_error": adapted_w.get("w4_error", 0.1)
             }).encode("utf-8")
             packet_blob = len(header_json).to_bytes(4, "big") + header_json + comp_bytes
             success, rtt_ms = self._send_over_socket(packet_blob)

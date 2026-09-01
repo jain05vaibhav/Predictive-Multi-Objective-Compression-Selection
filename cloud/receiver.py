@@ -4,8 +4,11 @@ Stage 7: Cloud Receiver & Decompression Server
 Receives edge telemetry packets transmitted by Stage 6 over TCP/HTTP, decompresses
 payloads using the inverse codec (c^-1), computes actual reconstruction error (epsilon),
 and commits verified ground-truth outcome vectors to OutcomeStore (logs/outcomes.csv).
+Also mirrors decision logs to logs/decisions.csv for real-time dashboard telemetry.
 """
 
+import os
+import csv
 import json
 import socket
 import threading
@@ -23,7 +26,7 @@ class CloudReceiver:
 
     def __init__(
         self,
-        host: str = "127.0.0.1",
+        host: str = "0.0.0.0",
         port: int = 8765,
         log_file: str = "logs/outcomes.csv"
     ):
@@ -59,7 +62,7 @@ class CloudReceiver:
     def receive_and_process_payload(self, packet_dict: Dict[str, Any]) -> Dict[str, Any]:
         """
         Ingests a compressed packet dictionary, decompresses the payload,
-        validates integrity, and logs the verified outcome.
+        validates integrity, and logs the verified outcome and mirrored decisions.
         """
         window_id = packet_dict.get("window_id", 0)
         compressor = packet_dict.get("compressor", packet_dict.get("compressor_used", "lz4"))
@@ -86,7 +89,6 @@ class CloudReceiver:
         # 2. Verify error
         actual_ratio = round(raw_size / max(1, comp_size), 4)
 
-
         # 3. Parse decompressed payload if JSON
         parsed_data = None
         try:
@@ -96,7 +98,7 @@ class CloudReceiver:
 
         # 4. Commit to OutcomeStore
         outcome_record = {
-            "timestamp": time.time(),
+            "timestamp": packet_dict.get("timestamp", time.time()),
             "window_id": window_id,
             "compressor": compressor,
             "compression_level": level,
@@ -110,6 +112,36 @@ class CloudReceiver:
             "status": status
         }
         self.outcome_store.record_outcome(outcome_record)
+
+        # 5. Mirror Decision Log on Cloud for Live Dashboard Visualizations
+        if "entropy" in packet_dict or "predicted_cpu_temp" in packet_dict:
+            try:
+                dec_path = "logs/decisions.csv"
+                if not os.path.exists(dec_path):
+                    with open(dec_path, "w", newline="", encoding="utf-8") as f:
+                        f.write("timestamp,window_id,chosen_compressor,compression_level,transmit_or_defer,composite_score,entropy,variance,predicted_cpu_temp,predicted_cpu_load,predicted_bw_kbps,throttling_risk,w1_ratio,w2_energy,w3_latency,w4_error\n")
+                with open(dec_path, "a", newline="", encoding="utf-8") as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        round(packet_dict.get("timestamp", time.time()), 3),
+                        window_id,
+                        compressor,
+                        level,
+                        "transmit",
+                        round(packet_dict.get("composite_score", 0.0), 4),
+                        round(packet_dict.get("entropy", 0.0), 4),
+                        round(packet_dict.get("variance", 0.0), 4),
+                        round(packet_dict.get("predicted_cpu_temp", 0.0), 2),
+                        round(packet_dict.get("predicted_cpu_load", 0.0), 2),
+                        round(packet_dict.get("predicted_bw_kbps", 1000.0), 2),
+                        packet_dict.get("throttling_risk", False),
+                        packet_dict.get("w1_ratio", 0.4),
+                        packet_dict.get("w2_energy", 0.3),
+                        packet_dict.get("w3_latency", 0.2),
+                        packet_dict.get("w4_error", 0.1)
+                    ])
+            except Exception:
+                pass
 
         print(f"[CLOUD INGESTION | Window #{window_id:03d}] Codec: {compressor.upper():<10} | Ingested: {comp_size:>5}B -> Decompressed: {raw_size:>5}B ({actual_ratio:.2f}x) | Error: {error:.6f} ({status.upper()}) | Decompress: {decompress_latency_ms:.3f}ms")
 
@@ -168,10 +200,25 @@ class CloudReceiver:
 
                     packet_dict = {
                         "window_id": header_json.get("window_id", 0),
+                        "timestamp": header_json.get("timestamp", time.time()),
                         "compressor": header_json.get("compressor", "lz4"),
+                        "compression_level": header_json.get("compression_level", 1),
                         "raw_size_bytes": header_json.get("raw_size", len(payload_blob)),
                         "compressed_size_bytes": header_json.get("comp_size", len(payload_blob)),
-                        "payload_bytes": payload_blob
+                        "execution_time_ms": header_json.get("execution_time_ms", 0.0),
+                        "cpu_energy_proxy_uj": header_json.get("cpu_energy_proxy_uj", 0.0),
+                        "payload_bytes": payload_blob,
+                        "entropy": header_json.get("entropy", 0.0),
+                        "variance": header_json.get("variance", 0.0),
+                        "predicted_cpu_temp": header_json.get("predicted_cpu_temp", 0.0),
+                        "predicted_cpu_load": header_json.get("predicted_cpu_load", 0.0),
+                        "predicted_bw_kbps": header_json.get("predicted_bw_kbps", 1000.0),
+                        "throttling_risk": header_json.get("throttling_risk", False),
+                        "composite_score": header_json.get("composite_score", 0.0),
+                        "w1_ratio": header_json.get("w1_ratio", 0.4),
+                        "w2_energy": header_json.get("w2_energy", 0.3),
+                        "w3_latency": header_json.get("w3_latency", 0.2),
+                        "w4_error": header_json.get("w4_error", 0.1)
                     }
                     self.receive_and_process_payload(packet_dict)
             except socket.timeout:

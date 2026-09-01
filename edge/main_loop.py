@@ -62,6 +62,13 @@ class EdgePipeline:
 
         # 4. Stage 4: Multi-Objective Decision Engine
         decision = self.stage4.select_strategy(features, predictions)
+        # Enrich decision with feature & prediction telemetry for network transmission
+        decision["entropy"] = features.get("entropy", 0.0)
+        decision["variance"] = features.get("variance", 0.0)
+        decision["predicted_cpu_temp"] = predictions.get("predicted_cpu_temp", 0.0)
+        decision["predicted_cpu_load"] = predictions.get("predicted_cpu_load", 0.0)
+        decision["predicted_bw_kbps"] = predictions.get("predicted_bandwidth_kbps", 1000.0)
+        decision["throttling_risk"] = predictions.get("is_throttling_risk", False)
 
         # 5. Stage 5: Dynamic Compression Execution
         compressed = self.stage5.compress_payload(window, decision)
