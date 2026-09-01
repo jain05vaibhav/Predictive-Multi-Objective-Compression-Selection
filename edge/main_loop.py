@@ -29,11 +29,13 @@ class EdgePipeline:
     def __init__(
         self,
         window_size: int = 5,
-        sample_timeout: float = DEFAULT_SAMPLE_TIMEOUT,
         cloud_host: Optional[str] = None,
-        cloud_port: int = 8765
+        cloud_port: int = 8765,
+        source: Optional[Any] = None,
+        scenario_shift: bool = False
     ):
-        self.stage1 = AcquisitionStage(window_size=window_size, max_wait_time=sample_timeout)
+        self.scenario_shift = scenario_shift
+        self.stage1 = AcquisitionStage(window_size=window_size, source=source)
         self.stage2 = FeatureExtractionStage()
         self.stage3 = PredictorStage()
         self.stage4 = DecisionStage()
@@ -60,6 +62,21 @@ class EdgePipeline:
         # 3. Stage 3: Forecast Next State
         predictions = self.stage3.predict(window)
 
+        # Inject simulated scenario shifts if enabled for live demonstration
+        scenario_label = "Live Hardware"
+        if self.scenario_shift:
+            phase = self.cycle_count % 9
+            if phase in (4, 5, 6):
+                scenario_label = "Simulated Bandwidth Congestion (120 kbps)"
+                predictions["predicted_bandwidth_kbps"] = 120.0
+            elif phase in (7, 8, 0):
+                scenario_label = "Simulated SoC Thermal Spike (78.0 °C)"
+                predictions["predicted_cpu_temp"] = 78.0
+                predictions["is_throttling_risk"] = True
+            else:
+                scenario_label = "Normal Operational Baseline (1000 kbps, 39.0 °C)"
+                predictions["predicted_bandwidth_kbps"] = 1000.0
+
         # 4. Stage 4: Multi-Objective Decision Engine
         decision = self.stage4.select_strategy(features, predictions)
         # Enrich decision with feature & prediction telemetry for network transmission
@@ -78,6 +95,7 @@ class EdgePipeline:
         
         return {
             "cycle": self.cycle_count,
+            "scenario": scenario_label,
             "window": window,
             "features": features,
             "prediction": predictions,
@@ -98,6 +116,7 @@ class EdgePipeline:
                 d = res["decision"]
                 c = res["compressed"]
                 tx = res["transmission"]
+                scen = res.get("scenario", "Live Hardware")
                 latest = win.data[-1] if win.data else {}
                 
                 # Formulate human-readable decision reason
@@ -112,8 +131,8 @@ class EdgePipeline:
                     reasons.append("Balanced Multi-Objective Tradeoff")
                 factor_reason = " + ".join(reasons)
 
-                print(f"\n[Window #{res['cycle']} | {time.strftime('%H:%M:%S')}]")
-                print(f"  [1. Sensors]  DHT22: {latest.get('temperature', 0.0):.1f} deg C, {latest.get('humidity', 0.0):.1f} % | SoC Temp: {p['predicted_cpu_temp']:.1f} deg C")
+                print(f"\n[Window #{res['cycle']} | {time.strftime('%H:%M:%S')} | Scenario: {scen}]")
+                print(f"  [1. Sensors]  DHT22: {latest.get('temperature', 0.0):.1f} deg C, {latest.get('humidity', 0.0):.1f} % | SoC Temp: {p['predicted_cpu_temp']:.1f} deg C | BW: {p.get('predicted_bandwidth_kbps', 1000.0):.0f} kbps")
                 print(f"  [2. Features] Entropy H: {f['entropy']:.4f} | Variance: {f['variance']:.4f}")
                 print(f"  [3. Forecast] Next CPU: {p['predicted_cpu_load']:.1f} % | Headroom: {p['thermal_headroom_c']:.1f} deg C | Risk: {p['is_throttling_risk']}")
                 print(f"  [4. Decision] Selected Codec: {d['chosen_compressor'].upper()} (Score: {d['composite_score']:+.3f}) | Drivers: {factor_reason}")
@@ -133,14 +152,13 @@ if __name__ == "__main__":
     parser.add_argument("--delay", type=float, default=0.5, help="Delay between windows in seconds (default: 0.5)")
     parser.add_argument("--cloud-host", type=str, default=None, help="Remote Cloud Receiver IP / Hostname (e.g. 192.168.1.50)")
     parser.add_argument("--cloud-port", type=int, default=8765, help="Remote Cloud Receiver Port (default: 8765)")
+    parser.add_argument("--scenario-shift", action="store_true", help="Simulate dynamic real-world condition shifts across cycles (Normal -> Congestion -> Thermal)")
     args = parser.parse_args()
 
     pipeline = EdgePipeline(
         window_size=args.window_size,
         cloud_host=args.cloud_host,
-        cloud_port=args.cloud_port
+        cloud_port=args.cloud_port,
+        scenario_shift=args.scenario_shift
     )
     pipeline.run_loop(max_cycles=args.windows, delay_s=args.delay)
-
-
-
