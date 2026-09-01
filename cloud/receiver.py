@@ -98,6 +98,20 @@ class CloudReceiver:
                 os.makedirs("logs", exist_ok=True)
                 with open("logs/latest_telemetry.json", "w", encoding="utf-8") as f:
                     json.dump(latest_sample, f, indent=2, default=str)
+
+                # Extract and write live camera frame on cloud host
+                import base64
+                b64_frame = latest_sample.get("frame_data")
+                if not b64_frame and isinstance(latest_sample.get("camera"), dict):
+                    b64_frame = latest_sample["camera"].get("image_bytes")
+                if b64_frame and isinstance(b64_frame, str) and len(b64_frame) > 100:
+                    try:
+                        img_bytes = base64.b64decode(b64_frame)
+                        os.makedirs("data/camera_captures", exist_ok=True)
+                        with open("data/camera_captures/latest_frame.jpg", "wb") as f_img:
+                            f_img.write(img_bytes)
+                    except Exception:
+                        pass
         except Exception:
             pass
 

@@ -87,10 +87,12 @@ class RPiTelemetryHub:
         Aggregates all live sensor readings (DHT22, RPi 3B+ System, Camera)
         into a unified telemetry sample dictionary for Stage 1 acquisition.
         """
-        now = time.time()
-        dht_data = self.read_dht22()
-        sys_data = self.read_system()
-        cam_data = self.read_camera()
+        import base64
+        raw_img = cam_data.get("image_bytes", b"")
+        b64_img = base64.b64encode(raw_img).decode("ascii") if raw_img else ""
+
+        cam_info = {k: v for k, v in cam_data.items() if k != "memory_buffer"}
+        cam_info["image_bytes"] = b64_img
 
         return {
             "timestamp": now,
@@ -104,11 +106,11 @@ class RPiTelemetryHub:
             "core_voltage_v": sys_data.get("core_voltage_v", 0.0),
             "memory_percent": sys_data.get("memory_percent", 0.0),
             "frame_id": cam_data.get("frame_id", 0),
-            "frame_data": cam_data.get("image_bytes", b""),
+            "frame_data": b64_img,
             # Structured sub-sections
             "dht22": dht_data,
             "system": sys_data,
-            "camera": cam_data
+            "camera": cam_info
         }
 
 
