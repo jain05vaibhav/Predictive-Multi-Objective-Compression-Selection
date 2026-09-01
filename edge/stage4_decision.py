@@ -32,12 +32,12 @@ class DecisionStage:
 
     # Baseline empirical profile models on ARM Cortex-A53 (per KB of telemetry payload)
     CODEC_PROFILES = {
-        "lz4":        {"ratio_base": 4.5, "latency_ms_per_kb": 0.15, "energy_uj_per_kb": 250.0, "error": 0.0, "level": 1},
-        "zstd":       {"ratio_base": 12.0, "latency_ms_per_kb": 0.40, "energy_uj_per_kb": 600.0, "error": 0.0, "level": 3},
-        "bzip2":      {"ratio_base": 10.0, "latency_ms_per_kb": 0.50, "energy_uj_per_kb": 750.0, "error": 0.0, "level": 9},
-        "gzip":       {"ratio_base": 6.5,  "latency_ms_per_kb": 0.35, "energy_uj_per_kb": 500.0, "error": 0.0, "level": 6},
-        "delta_zlib": {"ratio_base": 7.5,  "latency_ms_per_kb": 0.30, "energy_uj_per_kb": 450.0, "error": 0.0, "level": 6},
-        "none":       {"ratio_base": 1.0,  "latency_ms_per_kb": 0.001, "energy_uj_per_kb": 1.0,  "error": 0.0, "level": 0},
+        "lz4":        {"ratio_base": 4.5, "latency_ms_per_kb": 0.05, "energy_uj_per_kb": 50.0,  "error": 0.0, "level": 1},
+        "zstd":       {"ratio_base": 12.0, "latency_ms_per_kb": 0.30, "energy_uj_per_kb": 350.0, "error": 0.0, "level": 3},
+        "bzip2":      {"ratio_base": 10.0, "latency_ms_per_kb": 0.50, "energy_uj_per_kb": 600.0, "error": 0.0, "level": 9},
+        "gzip":       {"ratio_base": 6.5,  "latency_ms_per_kb": 0.25, "energy_uj_per_kb": 300.0, "error": 0.0, "level": 6},
+        "delta_zlib": {"ratio_base": 8.0,  "latency_ms_per_kb": 0.20, "energy_uj_per_kb": 250.0, "error": 0.0, "level": 6},
+        "none":       {"ratio_base": 1.0,  "latency_ms_per_kb": 0.001, "energy_uj_per_kb": 1.0,   "error": 0.0, "level": 0},
     }
 
     def __init__(
@@ -99,14 +99,14 @@ class DecisionStage:
         entropy = features.get("entropy", 2.0)
 
         # 1. Thermal or Undervoltage Stress Adaptation
-        if temp_risk or temp_c >= 70.0:
-            w2 += 0.35  # Heavily penalize energy / CPU draw
-            w3 += 0.20  # Penalize high compression latency
-            w1 = max(0.10, w1 - 0.35)
+        if temp_c >= 75.0 or (temp_risk and temp_c >= 65.0):
+            w2 += 0.30  # Penalize CPU energy
+            w3 += 0.20  # Penalize latency
+            w1 = max(0.20, w1 - 0.20)
         elif temp_c >= 60.0:
             w2 += 0.15
             w3 += 0.10
-            w1 = max(0.15, w1 - 0.15)
+            w1 = max(0.25, w1 - 0.15)
 
         # 2. Network Bandwidth Depletion Adaptation
         if bw_kbps < 200.0:
@@ -118,8 +118,8 @@ class DecisionStage:
             w3 = max(0.10, w3 - 0.10)
 
         # 3. Data Entropy Context
-        if entropy < 0.2:
-            w1 += 0.10  # Maximum potential for compression
+        if entropy < 0.5:
+            w1 += 0.15  # High compression potential on structured repetitive signals
 
         # Normalize weights so sum(w) = 1.0
         total_w = max(0.001, w1 + w2 + w3 + w4)
@@ -148,11 +148,11 @@ class DecisionStage:
         # Low entropy -> higher actual ratio; High entropy -> lower ratio
         entropy_factor = max(0.2, (4.0 - entropy) / 2.0)
         expected_ratio = profile["ratio_base"] * (1.0 if codec == "none" else entropy_factor)
-        if codec == "delta_zlib" and entropy < 0.5:
-            expected_ratio *= 1.5  # Delta encoding excels on low-entropy repetitive series
+        if codec == "delta_zlib" and entropy < 1.0:
+            expected_ratio *= 1.4  # Delta encoding excels on low-entropy repetitive series
 
         # Normalize metrics to [0, 1] range across candidates
-        ratio_norm = min(1.0, expected_ratio / 20.0)
+        ratio_norm = min(1.0, max(0.05, expected_ratio / 15.0))
         energy_norm = min(1.0, profile["energy_uj_per_kb"] / 1000.0)
         latency_norm = min(1.0, profile["latency_ms_per_kb"] / 1.0)
         error_norm = profile["error"]

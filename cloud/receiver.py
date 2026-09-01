@@ -89,10 +89,15 @@ class CloudReceiver:
         # 2. Verify error
         actual_ratio = round(raw_size / max(1, comp_size), 4)
 
-        # 3. Parse decompressed payload if JSON
+        # 3. Parse decompressed payload if JSON and update live telemetry snapshot
         parsed_data = None
         try:
             parsed_data = json.loads(decompressed_bytes.decode("utf-8"))
+            if isinstance(parsed_data, list) and len(parsed_data) > 0:
+                latest_sample = parsed_data[-1]
+                os.makedirs("logs", exist_ok=True)
+                with open("logs/latest_telemetry.json", "w", encoding="utf-8") as f:
+                    json.dump(latest_sample, f, indent=2, default=str)
         except Exception:
             pass
 

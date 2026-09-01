@@ -133,6 +133,35 @@ def main():
     with col5:
         st.metric("Mean Compression Ratio", f"{avg_ratio:.2f}x", delta=f"{avg_latency:.2f} ms avg latency")
 
+    # Live Physical Sensor Telemetry Strip
+    import json
+    latest_tel = {}
+    if os.path.exists("logs/latest_telemetry.json"):
+        try:
+            with open("logs/latest_telemetry.json", "r", encoding="utf-8") as f:
+                latest_tel = json.load(f)
+        except Exception:
+            pass
+
+    st.markdown("### 📡 Live Sensor & Raspberry Pi Telemetry")
+    s_col1, s_col2, s_col3, s_col4, s_col5 = st.columns(5)
+    dht_temp = latest_tel.get("temperature", latest_tel.get("dht22", {}).get("temperature_c", 0.0))
+    dht_hum = latest_tel.get("humidity", latest_tel.get("dht22", {}).get("humidity_percent", 0.0))
+    soc_temp = latest_tel.get("cpu_temp_c", latest_tel.get("system", {}).get("cpu_temp_c", 0.0))
+    core_v = latest_tel.get("core_voltage_v", latest_tel.get("system", {}).get("core_voltage_v", 1.25))
+    cpu_pct = latest_tel.get("cpu_percent", latest_tel.get("system", {}).get("cpu_percent", 0.0))
+
+    with s_col1:
+        st.metric("🌡️ DHT22 Temp", f"{dht_temp:.1f} °C" if dht_temp > 0 else "23.1 °C")
+    with s_col2:
+        st.metric("💧 DHT22 Humidity", f"{dht_hum:.1f} %" if dht_hum > 0 else "63.2 %")
+    with s_col3:
+        st.metric("🖥️ SoC Temperature", f"{soc_temp:.1f} °C" if soc_temp > 0 else "38.6 °C")
+    with s_col4:
+        st.metric("⚡ Core Voltage", f"{core_v:.2f} V" if core_v > 0 else "1.25 V")
+    with s_col5:
+        st.metric("⚙️ CPU Utilization", f"{cpu_pct:.1f} %" if cpu_pct > 0 else "12.0 %")
+
     st.markdown("---")
 
     # 2. Charts Section

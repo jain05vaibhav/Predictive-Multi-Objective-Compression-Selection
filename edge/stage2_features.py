@@ -66,7 +66,16 @@ class FeatureExtractionStage:
                 if extracted:
                     return extracted
 
-            # Preference order for primary numeric signal
+            # Multi-sensor extraction for comprehensive information density & entropy
+            aggregated_series = []
+            for s in data:
+                for k in ["temperature", "humidity", "cpu_temp_c", "cpu_percent", "core_voltage_v"]:
+                    if k in s and isinstance(s[k], (int, float)) and s[k] > 0.0:
+                        aggregated_series.append(float(s[k]))
+            if len(aggregated_series) >= 2:
+                return aggregated_series
+
+            # Preference order for primary numeric signal fallback
             candidate_keys = [
                 "temperature", "temperature_c", "cpu_temp_c", "cpu_percent",
                 "core_voltage_v", "cpu_freq_mhz", "core_freq_mhz", "humidity"
