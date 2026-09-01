@@ -88,6 +88,11 @@ class RPiTelemetryHub:
         into a unified telemetry sample dictionary for Stage 1 acquisition.
         """
         import base64
+        now = time.time()
+        dht_data = self.read_dht22()
+        sys_data = self.read_system()
+        cam_data = self.read_camera()
+
         raw_img = cam_data.get("image_bytes", b"")
         b64_img = base64.b64encode(raw_img).decode("ascii") if raw_img else ""
 
