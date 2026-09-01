@@ -100,11 +100,23 @@ class EdgePipeline:
                 tx = res["transmission"]
                 latest = win.data[-1] if win.data else {}
                 
+                # Formulate human-readable decision reason
+                reasons = []
+                if p.get('predicted_cpu_temp', 0.0) >= 70.0 or p.get('is_throttling_risk', False):
+                    reasons.append("Thermal/CPU Stress (Boosted Energy/Latency Weights)")
+                elif p.get('predicted_bandwidth_kbps', 1000.0) < 200.0:
+                    reasons.append("Bandwidth Depletion (Boosted Compression Ratio Weight)")
+                elif f.get('entropy', 2.0) < 0.5:
+                    reasons.append("Low Shannon Entropy H<0.5 (Boosted Delta Encoding)")
+                else:
+                    reasons.append("Balanced Multi-Objective Tradeoff")
+                factor_reason = " + ".join(reasons)
+
                 print(f"\n[Window #{res['cycle']} | {time.strftime('%H:%M:%S')}]")
                 print(f"  [1. Sensors]  DHT22: {latest.get('temperature', 0.0):.1f} deg C, {latest.get('humidity', 0.0):.1f} % | SoC Temp: {p['predicted_cpu_temp']:.1f} deg C")
                 print(f"  [2. Features] Entropy H: {f['entropy']:.4f} | Variance: {f['variance']:.4f}")
                 print(f"  [3. Forecast] Next CPU: {p['predicted_cpu_load']:.1f} % | Headroom: {p['thermal_headroom_c']:.1f} deg C | Risk: {p['is_throttling_risk']}")
-                print(f"  [4. Decision] Selected Codec: {d['chosen_compressor'].upper()} (Score: {d['composite_score']:+.3f}) | Action: {d['transmit_or_defer']}")
+                print(f"  [4. Decision] Selected Codec: {d['chosen_compressor'].upper()} (Score: {d['composite_score']:+.3f}) | Drivers: {factor_reason}")
                 print(f"  [5. Compress] Size: {c['raw_size_bytes']}B -> {c['compressed_size_bytes']}B | Ratio: {c['compression_ratio']:.2f}x (Saved: {c['space_savings_percent']}%) | Time: {c['execution_time_ms']:.3f} ms")
                 print(f"  [6. Transmit] Status: {tx['status']} | Bytes Sent: {tx['bytes_transmitted']}B | Queue Backlog: {tx['queue_depth']}")
                 

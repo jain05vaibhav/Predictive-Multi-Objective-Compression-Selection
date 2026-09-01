@@ -73,44 +73,39 @@ def main():
     refresh_interval = st.sidebar.slider("Refresh Interval (seconds)", 1, 10, 2)
     max_records = st.sidebar.number_input("Max Window Records to Display", min_value=10, max_value=500, value=50)
 
+    # Sidebar Camera Snapshot
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📷 Raspberry Pi Camera Feed")
+    cam_img_path = "data/camera_captures/latest_frame.jpg"
+    if os.path.exists(cam_img_path):
+        try:
+            st.sidebar.image(cam_img_path, caption="Latest Frame (RAM/Disk Capture)", use_container_width=True)
+        except Exception:
+            st.sidebar.info("Camera frame buffer updating...")
+    else:
+        st.sidebar.info("Awaiting live camera capture...")
+
+    # Sidebar What-If Simulator
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🧪 What-If Factor Simulator")
+    with st.sidebar.expander("Simulate Condition Shifts", expanded=False):
+        sim_temp = st.slider("Simulated SoC Temp (°C)", 30.0, 85.0, 42.0, 1.0)
+        sim_bw = st.slider("Simulated Bandwidth (kbps)", 50.0, 1500.0, 1000.0, 50.0)
+        sim_entropy = st.slider("Simulated Shannon Entropy (H)", 0.0, 4.0, 1.2, 0.1)
+
+        from edge.stage4_decision import DecisionStage
+        sim_engine = DecisionStage()
+        sim_feat = {"window_id": 999, "entropy": sim_entropy, "variance": 0.05}
+        sim_pred = {"predicted_cpu_temp": sim_temp, "predicted_cpu_load": 25.0, "predicted_bandwidth_kbps": sim_bw, "is_throttling_risk": (sim_temp >= 70.0)}
+        sim_dec = sim_engine.select_strategy(sim_feat, sim_pred)
+        
+        st.markdown(f"**Optimal Codec:** `{sim_dec['chosen_compressor'].upper()}`")
+        st.caption(f"Score: `{sim_dec['composite_score']:+.3f}` | Weights: $w_1$={sim_dec['adapted_weights']['w1_ratio']:.2f}, $w_2$={sim_dec['adapted_weights']['w2_energy']:.2f}, $w_3$={sim_dec['adapted_weights']['w3_latency']:.2f}")
+
     decisions_df, outcomes_df = load_data()
 
     if outcomes_df.empty and decisions_df.empty:
         st.info("No telemetry logs found yet. Run the pipeline (`python -m edge.main_loop`) to stream data!")
-        # Show simulated sample view for preview
-        if st.sidebar.button("Generate Sample Demo Data"):
-            from edge.stage1_acquisition import AcquisitionStage
-            from edge.stage2_features import FeatureExtractionStage
-            from edge.stage3_predictor import PredictorStage
-            from edge.stage4_decision import DecisionStage
-            from edge.stage5_compression import CompressionStage
-            from cloud.receiver import CloudReceiver
-
-            s1 = AcquisitionStage(window_size=5)
-            s2 = FeatureExtractionStage()
-            s3 = PredictorStage()
-            s4 = DecisionStage()
-            s5 = CompressionStage()
-            cloud = CloudReceiver()
-
-            for _ in range(5):
-                win = s1.acquire_window()
-                feats = s2.extract_features(win)
-                pred = s3.predict(win)
-                dec = s4.select_strategy(feats, pred)
-                comp = s5.compress_payload(win, dec)
-                cloud.receive_and_process_payload({
-                    "window_id": dec["window_id"],
-                    "compressor": comp["compressor_used"],
-                    "compression_level": comp["compression_level"],
-                    "raw_size_bytes": comp["raw_size_bytes"],
-                    "compressed_size_bytes": comp["compressed_size_bytes"],
-                    "execution_time_ms": comp["execution_time_ms"],
-                    "cpu_energy_proxy_uj": comp["cpu_energy_proxy_uj"],
-                    "payload_bytes": comp["compressed_payload"],
-                    "transfer_time_ms": 2.5
-                })
-            st.rerun()
         return
 
     # Trim to recent records
@@ -185,6 +180,20 @@ def main():
                 st.scatter_chart(scatter_data, x="latency_ms", y="ratio", color=color_col)
             else:
                 st.info("Awaiting outcome metrics...")
+
+        # Live Weight Factors Breakdown
+        if not recent_decisions.empty and "w1_ratio" in recent_decisions.columns:
+            latest_dec = recent_decisions.iloc[-1]
+            st.markdown("#### ⚖️ Current Pareto Objective Weight Allocation")
+            w_col1, w_col2, w_col3, w_col4 = st.columns(4)
+            with w_col1:
+                st.metric("Ratio Weight (w1)", f"{float(latest_dec.get('w1_ratio', 0.4)):.2f}")
+            with w_col2:
+                st.metric("Energy Weight (w2)", f"{float(latest_dec.get('w2_energy', 0.3)):.2f}")
+            with w_col3:
+                st.metric("Latency Weight (w3)", f"{float(latest_dec.get('w3_latency', 0.2)):.2f}")
+            with w_col4:
+                st.metric("Error Weight (w4)", f"{float(latest_dec.get('w4_error', 0.1)):.2f}")
 
     with tab3:
         st.subheader("Recent Verified Outcome Records")
