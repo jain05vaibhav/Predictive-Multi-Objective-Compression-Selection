@@ -191,15 +191,24 @@ class PredictorStage:
         thermal_headroom = max(0.0, round(self.thermal_limit_c - pred_temp, 2))
 
         # Risk assessments for Raspberry Pi 3B+ SoC
+        is_active_throttling = False
+        if raw.get("throttled_now") or raw.get("arm_freq_capped_now") or raw.get("undervoltage_now"):
+            is_active_throttling = True
+        elif raw.get("throttled_hex") not in ("0x0", "0", None):
+            try:
+                val = int(str(raw["throttled_hex"]), 16)
+                is_active_throttling = bool(val & 0b1111)  # Only active bits 0..3
+            except Exception:
+                pass
+
         throttling_risk = bool(
             pred_temp >= self.warning_temp_c
-            or raw["throttled_now"]
-            or (raw["throttled_hex"] != "0x0" and raw["throttled_hex"] != "0")
+            or is_active_throttling
         )
 
         undervoltage_risk = bool(
-            raw["core_voltage_v"] < 1.20
-            or raw["undervoltage_now"]
+            raw.get("core_voltage_v", 1.25) < 1.20
+            or raw.get("undervoltage_now", False)
         )
 
         return {

@@ -1,1 +1,1 @@
-timestamp,window_id,temp_mean,hum_mean,entropy,compressor,param
+timestamp,window_id,chosen_compressor,compression_level,transmit_or_defer,composite_score,entropy,variance,predicted_cpu_temp,predicted_cpu_load,predicted_bw_kbps,throttling_risk,w1_ratio,w2_energy,w3_latency,w4_error

@@ -147,16 +147,18 @@ def main():
         c1, c2 = st.columns(2)
         with c1:
             st.subheader("SoC Temperature & CPU Load Trajectory")
-            if not recent_decisions.empty and "predicted_cpu_temp" in recent_decisions:
-                chart_data = recent_decisions[["predicted_cpu_temp", "predicted_cpu_load"]].reset_index(drop=True)
+            temp_cols = [col for col in ["predicted_cpu_temp", "predicted_cpu_load"] if col in recent_decisions.columns]
+            if not recent_decisions.empty and temp_cols:
+                chart_data = recent_decisions[temp_cols].reset_index(drop=True)
                 st.line_chart(chart_data)
             else:
                 st.info("Awaiting decision temperature telemetry...")
 
         with c2:
             st.subheader("Shannon Entropy (H) & Signal Variance")
-            if not recent_decisions.empty and "entropy" in recent_decisions:
-                entropy_data = recent_decisions[["entropy", "variance"]].reset_index(drop=True)
+            entropy_cols = [col for col in ["entropy", "variance"] if col in recent_decisions.columns]
+            if not recent_decisions.empty and entropy_cols:
+                entropy_data = recent_decisions[entropy_cols].reset_index(drop=True)
                 st.line_chart(entropy_data)
             else:
                 st.info("Awaiting feature extraction entropy logs...")
@@ -165,23 +167,32 @@ def main():
         c3, c4 = st.columns(2)
         with c3:
             st.subheader("Selected Compression Codec Distribution")
-            if not recent_decisions.empty and "chosen_compressor" in recent_decisions:
+            if not recent_decisions.empty and "chosen_compressor" in recent_decisions.columns:
                 codec_counts = recent_decisions["chosen_compressor"].value_counts()
+                st.bar_chart(codec_counts)
+            elif not recent_decisions.empty and "compressor" in recent_decisions.columns:
+                codec_counts = recent_decisions["compressor"].value_counts()
                 st.bar_chart(codec_counts)
             else:
                 st.info("Awaiting decision codec logs...")
 
         with c4:
             st.subheader("Compression Ratio vs Execution Latency")
-            if not recent_outcomes.empty and "ratio" in recent_outcomes and "latency_ms" in recent_outcomes:
-                scatter_data = recent_outcomes[["ratio", "latency_ms", "compressor"]]
-                st.scatter_chart(scatter_data, x="latency_ms", y="ratio", color="compressor")
+            if not recent_outcomes.empty and "ratio" in recent_outcomes.columns and "latency_ms" in recent_outcomes.columns:
+                scatter_cols = [col for col in ["ratio", "latency_ms", "compressor"] if col in recent_outcomes.columns]
+                scatter_data = recent_outcomes[scatter_cols]
+                color_col = "compressor" if "compressor" in scatter_data.columns else None
+                st.scatter_chart(scatter_data, x="latency_ms", y="ratio", color=color_col)
             else:
                 st.info("Awaiting outcome metrics...")
 
     with tab3:
         st.subheader("Recent Verified Outcome Records")
-        st.dataframe(recent_outcomes.sort_values(by="timestamp", ascending=False), use_container_width=True)
+        if not recent_outcomes.empty:
+            sort_col = "timestamp" if "timestamp" in recent_outcomes.columns else recent_outcomes.columns[0]
+            st.dataframe(recent_outcomes.sort_values(by=sort_col, ascending=False), use_container_width=True)
+        else:
+            st.info("No outcome records logged yet.")
 
     # Auto-refresh loop
     if auto_refresh:
