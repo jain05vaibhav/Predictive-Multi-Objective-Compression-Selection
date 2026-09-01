@@ -7,6 +7,7 @@ Pareto-optimal compression decisions, and cumulative bandwidth/energy savings.
 
 import os
 import time
+import json
 import pandas as pd
 import streamlit as st
 
@@ -165,7 +166,6 @@ def main():
         st.metric("Mean Compression Ratio", f"{avg_ratio:.2f}x", delta=f"{avg_latency:.2f} ms avg latency")
 
     # Live Physical Sensor Telemetry Strip
-    import json
     latest_tel = {}
     if os.path.exists("logs/latest_telemetry.json"):
         try:
