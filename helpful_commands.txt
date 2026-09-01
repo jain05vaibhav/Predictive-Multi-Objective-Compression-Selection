@@ -49,13 +49,16 @@ python -m edge.stage1_acquisition
 # Run Stage 2 Feature Extraction Standalone (Entropy, Variance, RoC):
 python -m edge.stage2_features
 
-# Run Stage 1 + Stage 2 End-to-End Inline Test:
-python -c "from edge.stage1_acquisition import AcquisitionStage; from edge.stage2_features import FeatureExtractionStage; s1 = AcquisitionStage(window_size=10); s2 = FeatureExtractionStage(); win = s1.acquire_window(); feats = s2.extract_features(win); print('Acquired Window:', win); print('Extracted Features:', feats)"
+# Run Stage 3 State & Resource Predictor Standalone (EWMA & Trend Forecasting):
+python -m edge.stage3_predictor
+
+# Run Stage 1 + Stage 2 + Stage 3 End-to-End Inline Test:
+python -c "from edge.stage1_acquisition import AcquisitionStage; from edge.stage2_features import FeatureExtractionStage; from edge.stage3_predictor import PredictorStage; s1 = AcquisitionStage(window_size=10); s2 = FeatureExtractionStage(); s3 = PredictorStage(); win = s1.acquire_window(); feats = s2.extract_features(win); pred = s3.predict(win); print('Acquired Window:', win); print('Features:', feats); print('Predicted Next State:', pred)"
 
 
 4. AUTOMATED UNIT TESTS & VALIDATION
 --------------------------------------------------------------------------------
-# Run All Unit Tests Across Entire Suite (28 test cases):
+# Run All Unit Tests Across Entire Suite (36 test cases):
 python -m unittest discover tests
 
 # Run All Unit Tests with Verbose Output:
@@ -70,8 +73,12 @@ python -m unittest tests/test_stage1.py
 # Run Stage 2 Tests Only:
 python -m unittest tests/test_stage2.py
 
+# Run Stage 3 Predictor Tests Only:
+python -m unittest tests/test_stage3.py
+
 # Run Camera Reader & In-Memory Storage Tests Only:
 python -m unittest tests/test_camera_reader.py
+
 
 
 5. OUTPUT INSPECTION & VERIFICATION
