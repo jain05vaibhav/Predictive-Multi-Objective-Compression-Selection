@@ -64,7 +64,7 @@ flowchart TD
 | :--- | :--- | :--- |
 | **Stage 1** | **Data Acquisition & Windowing** | Polls live sensor and SoC telemetry through `RPiTelemetryHub` and batches samples into discrete `Window` objects (`N=50` samples or `T_max=5.0s` timeout). |
 | **Stage 2** | **Feature Extraction** | Computes Shannon Entropy ($H$), statistical variance ($\sigma^2$), and Rate of Change ($\text{RoC}$) using pure Python built-in math (zero external C-library dependency). |
-| **Stage 3** | **Resource & Network Predictor** | Forecasts next-window SoC thermal state, CPU load, and network conditions using Exponentially Weighted Moving Averages (EWMA). |
+| **Stage 3** | **Resource & State Predictor** | Forecasts next-window SoC thermal state, CPU load, and network conditions using Holt's Double Exponential Smoothing ($\alpha=0.3, \beta=0.2$) and hardware risk classifiers. |
 | **Stage 4** | **Multi-Objective Decision Engine** | Evaluates candidate compression algorithms under strict error limits ($\epsilon$) and scores them via multi-objective utility weighting: $\text{Score} = w_1 \cdot \text{Ratio} - w_2 \cdot \text{Energy} - w_3 \cdot \text{Latency} - w_4 \cdot \text{Error}$. |
 | **Stage 5** | **Compression Execution** | Executes the winning algorithm (LZ4, Zstandard, Bzip2, Snappy, or Delta-encoding) on the window's serialized byte payload and records actual compression metrics. |
 | **Stage 6** | **Transmission Manager** | Transmits the compressed payload or queues it locally when network bandwidth drops below a minimum threshold. |
@@ -128,7 +128,7 @@ pip install -r requirements-dashboard.txt
 
 ## 6. Execution & Verification Commands
 
-### 1. Run Automated Unit Tests (29 Unit Tests)
+### 1. Run Automated Unit Tests (36 Unit Tests)
 ```bash
 python -m unittest discover tests -v
 ```
@@ -138,7 +138,7 @@ python -m unittest discover tests -v
 # Test Native Raspberry Pi 3B+ SoC Metrics (vcgencmd & psutil)
 python -m edge.sensors.rpi_system_reader
 
-# Test CSI / USB Camera Capture (in-memory RAM buffer)
+# Test CSI / USB Camera Capture (in-memory RAM buffer & disk overwrite)
 python -m edge.sensors.camera_reader
 
 # Test DHT22 Sensor (GPIO4)
@@ -156,8 +156,11 @@ python -m edge.stage1_acquisition
 # Run Stage 2 Feature Extraction
 python -m edge.stage2_features
 
-# Run Stage 1 + Stage 2 End-to-End Inline Test
-python -c "from edge.stage1_acquisition import AcquisitionStage; from edge.stage2_features import FeatureExtractionStage; s1 = AcquisitionStage(window_size=5); s2 = FeatureExtractionStage(); win = s1.acquire_window(); feats = s2.extract_features(win); print('Acquired Window:', win); print('Extracted Features:', feats)"
+# Run Stage 3 State & Resource Predictor
+python -m edge.stage3_predictor
+
+# Run Stage 1 + Stage 2 + Stage 3 End-to-End Inline Test
+python -c "from edge.stage1_acquisition import AcquisitionStage; from edge.stage2_features import FeatureExtractionStage; from edge.stage3_predictor import PredictorStage; s1 = AcquisitionStage(window_size=5); s2 = FeatureExtractionStage(); s3 = PredictorStage(); win = s1.acquire_window(); feats = s2.extract_features(win); pred = s3.predict(win); print('Acquired Window:', win); print('Extracted Features:', feats); print('Predicted Next State:', pred)"
 ```
 
 ---
@@ -167,12 +170,12 @@ python -c "from edge.stage1_acquisition import AcquisitionStage; from edge.stage
 ```
 Predictive-Multi-Objective-Compression-Selection/
 ├── edge/                          # Runs on Raspberry Pi 3B+ Edge Node
-│   ├── config.py                  # Hyperparameters (N=50, T_max=5.0s, weights, binary paths)
+│   ├── config.py                  # Hyperparameters (N=50, T_max=5.0s, weights, predictor alpha)
 │   ├── stage1_acquisition.py      # Window dataclass & AcquisitionStage engine
 │   ├── stage2_features.py         # Pure-Python FeatureExtractionStage (Entropy, Var, RoC)
-│   ├── stage3_predictor.py        # Resource & Network State Predictor (EWMA)
+│   ├── stage3_predictor.py        # Resource & State Predictor (EWMA + Holt's Trend)
 │   ├── stage4_decision.py         # Multi-Objective Decision Engine
-│   ├── stage5_compression.py      # Compression Engine (LZ4, Zstd, Bzip2, Snappy)
+│   ├── stage5_compression.py      # Compression Engine (LZ4, Zstd, Bzip2, Gzip, Delta)
 │   ├── stage6_transmission.py     # Network Transmission & Deferral Manager
 │   ├── main_loop.py               # Orchestrator running Stages 1–6 per window
 │   └── sensors/
@@ -186,16 +189,19 @@ Predictive-Multi-Objective-Compression-Selection/
 ├── dashboard/                     # Web Dashboard
 │   └── app.py                     # Streamlit live telemetry & Pareto visualization
 ├── docs/                          # Comprehensive Technical Documentation
-│   ├── stage1_stage2_guide.md     # Stage 1 & 2 mathematical foundations and hardware guide
+│   ├── pipeline_architecture_and_dataflow.md # Complete End-to-End Architecture & Dataflow
+│   ├── stage1_stage2_guide.md     # Stage 1, 2 & 3 mathematical foundations and hardware guide
 │   └── implmentation_plan_60.md   # Phase-by-phase implementation roadmap
-├── tests/                         # Automated Unit Tests (29 Test Cases)
+├── tests/                         # Automated Unit Tests (36 Test Cases)
 │   ├── test_rpi_system_reader.py  # Tests for vcgencmd parsing & psutil metrics
 │   ├── test_stage1.py             # Tests for acquisition batching & windowing
 │   ├── test_stage2.py             # Tests for Shannon entropy, variance, and RoC
+│   ├── test_stage3.py             # Tests for EWMA level, trend, and throttling alarms
 │   ├── test_camera_reader.py      # Tests for RAM frame capture & stream buffers
-│   └── test_stage3.py ... test_stage7.py
+│   └── test_stage4.py ... test_stage7.py
 ├── data/camera_captures/          # Single overwritten latest_frame.jpg snapshot
 ├── requirements.txt               # Lightweight edge node dependencies (armv7l compatible)
 ├── requirements-dashboard.txt     # Full cloud/dashboard dependencies
 └── helpful_commands.txt           # CLI cheatsheet for quick testing
 ```
+
