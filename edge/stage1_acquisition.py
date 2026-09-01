@@ -55,8 +55,14 @@ class Window:
             elif self.data and isinstance(self.data[0], (bytes, bytearray)):
                 return b"".join(self.data)
         
+        def _json_default(obj):
+            if isinstance(obj, (bytes, bytearray)):
+                import base64
+                return base64.b64encode(obj).decode("ascii")
+            return str(obj)
+
         # Default JSON UTF-8 byte serialization for numeric/text telemetry
-        return json.dumps(self.data, default=str).encode("utf-8")
+        return json.dumps(self.data, default=_json_default).encode("utf-8")
 
     def __getitem__(self, item: str) -> Any:
         if hasattr(self, item):

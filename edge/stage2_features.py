@@ -66,16 +66,7 @@ class FeatureExtractionStage:
                 if extracted:
                     return extracted
 
-            # Multi-sensor extraction for comprehensive information density & entropy
-            aggregated_series = []
-            for s in data:
-                for k in ["temperature", "humidity", "cpu_temp_c", "cpu_percent", "core_voltage_v"]:
-                    if k in s and isinstance(s[k], (int, float)) and s[k] > 0.0:
-                        aggregated_series.append(float(s[k]))
-            if len(aggregated_series) >= 2:
-                return aggregated_series
-
-            # Preference order for primary numeric signal fallback
+            # Preference order for primary numeric signal
             candidate_keys = [
                 "temperature", "temperature_c", "cpu_temp_c", "cpu_percent",
                 "core_voltage_v", "cpu_freq_mhz", "core_freq_mhz", "humidity"
@@ -83,6 +74,15 @@ class FeatureExtractionStage:
             for key in candidate_keys:
                 if key in first_sample and isinstance(first_sample[key], (int, float)):
                     return [float(s[key]) for s in data if s.get(key) is not None and isinstance(s.get(key), (int, float))]
+
+            # Multi-sensor extraction for comprehensive information density fallback
+            aggregated_series = []
+            for s in data:
+                for k in ["temperature", "humidity", "cpu_temp_c", "cpu_percent", "core_voltage_v"]:
+                    if k in s and isinstance(s[k], (int, float)) and s[k] > 0.0:
+                        aggregated_series.append(float(s[k]))
+            if len(aggregated_series) >= 2:
+                return aggregated_series
 
             # Fallback: extract the first numeric field found in the dict
             for k, v in first_sample.items():
@@ -192,14 +192,14 @@ class FeatureExtractionStage:
             timestamp = 0.0
 
         series = self._extract_numeric_series(raw_data, feature_key=feature_key)
-        sample_count = len(series)
+        sample_count = len(raw_data) if isinstance(raw_data, list) else len(series)
 
-        if sample_count == 0:
+        if len(series) == 0:
             return {
                 "window_id": window_id,
                 "timestamp": timestamp,
                 "data_type": data_type,
-                "sample_count": 0,
+                "sample_count": sample_count,
                 "entropy": 0.0,
                 "variance": 0.0,
                 "rate_of_change": 0.0,
