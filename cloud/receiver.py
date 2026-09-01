@@ -107,9 +107,11 @@ class CloudReceiver:
             "energy_uj": packet_dict.get("cpu_energy_proxy_uj", 0.0),
             "error": error,
             "transfer_time_ms": transfer_ms,
-            "status": "verified"
+            "status": status
         }
         self.outcome_store.record_outcome(outcome_record)
+
+        print(f"[CLOUD INGESTION | Window #{window_id:03d}] Codec: {compressor.upper():<10} | Ingested: {comp_size:>5}B -> Decompressed: {raw_size:>5}B ({actual_ratio:.2f}x) | Error: {error:.6f} ({status.upper()}) | Decompress: {decompress_latency_ms:.3f}ms")
 
         return {
             "window_id": window_id,
@@ -117,7 +119,7 @@ class CloudReceiver:
             "decompressed_bytes_count": len(decompressed_bytes),
             "reconstruction_error": error,
             "decompress_time_ms": round(decompress_latency_ms, 4),
-            "status": "verified",
+            "status": status,
             "sample_count": len(parsed_data) if isinstance(parsed_data, list) else 1
         }
 
@@ -138,6 +140,8 @@ class CloudReceiver:
 
     def _server_loop(self):
         """Internal server accept loop."""
+        print(f"=== Cloud Ingestion Server listening on {self.host}:{self.port} ===")
+        print("Waiting for edge telemetry stream from Raspberry Pi... (Press Ctrl+C to stop)")
         while self.is_running:
             try:
                 conn, addr = self.server_socket.accept()
@@ -188,44 +192,42 @@ class CloudReceiver:
 
 
 if __name__ == "__main__":
-    print("=== Testing Stage 7: Cloud Receiver & Decompression Engine ===")
-    receiver = CloudReceiver(log_file="logs/test_cloud_outcomes.csv")
+    import argparse
+    parser = argparse.ArgumentParser(description="Cloud Receiver & Telemetry Ingestion Server")
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="Bind IP address (default: 0.0.0.0 / all interfaces)")
+    parser.add_argument("--port", type=int, default=8765, help="TCP port to listen on (default: 8765)")
+    parser.add_argument("--test", action="store_true", help="Run standalone verification test instead of live server")
+    args = parser.parse_args()
 
-    # Generate synthetic compressed payload via Stage 5
-    comp_stage = CompressionStage()
-    sample_window = [{"temperature": 23.5 + i, "humidity": 60.0} for i in range(10)]
-    comp_res = comp_stage.compress(sample_window, codec="zstd")
+    if args.test:
+        print("=== Testing Stage 7: Cloud Receiver & Decompression Engine ===")
+        receiver = CloudReceiver(log_file="logs/test_cloud_outcomes.csv")
+        comp_stage = CompressionStage()
+        sample_window = [{"temperature": 23.5 + i, "humidity": 60.0} for i in range(10)]
+        comp_res = comp_stage.compress(sample_window, codec="zstd")
 
-    # Ingest into Cloud Receiver
-    packet = {
-        "window_id": 1,
-        "compressor": comp_res["compressor_used"],
-        "compression_level": comp_res["compression_level"],
-        "raw_size_bytes": comp_res["raw_size_bytes"],
-        "compressed_size_bytes": comp_res["compressed_size_bytes"],
-        "execution_time_ms": comp_res["execution_time_ms"],
-        "cpu_energy_proxy_uj": comp_res["cpu_energy_proxy_uj"],
-        "payload_bytes": comp_res["compressed_payload"],
-        "transfer_time_ms": 5.2
-    }
-
-    result = receiver.receive_and_process_payload(packet)
-    print(f"\n[Cloud Ingestion Result]")
-    print(f"  -> Window ID:            {result['window_id']}")
-    print(f"  -> Codec Verified:       {result['compressor']}")
-    print(f"  -> Reconstruction Error: {result['reconstruction_error']}")
-    print(f"  -> Decompress Latency:   {result['decompress_time_ms']} ms")
-    print(f"  -> Status:               {result['status']}")
-
-    stats = receiver.outcome_store.get_summary_stats()
-    print(f"\n[Outcome Store Summary]")
-    print(f"  -> Total Packets Logged: {stats['total_windows']}")
-    print(f"  -> Total Bytes Ingested: {stats['total_compressed_bytes']}B (Saved: {stats['overall_bandwidth_saved_pct']}%)")
-
-    # Clean up test log
-    import os
-    if os.path.exists("logs/test_cloud_outcomes.csv"):
-        os.remove("logs/test_cloud_outcomes.csv")
-
-    print("\nStage 7 Cloud Receiver test complete.")
-
+        packet = {
+            "window_id": 1,
+            "compressor": comp_res["compressor_used"],
+            "compression_level": comp_res["compression_level"],
+            "raw_size_bytes": comp_res["raw_size_bytes"],
+            "compressed_size_bytes": comp_res["compressed_size_bytes"],
+            "execution_time_ms": comp_res["execution_time_ms"],
+            "cpu_energy_proxy_uj": comp_res["cpu_energy_proxy_uj"],
+            "payload_bytes": comp_res["compressed_payload"],
+            "transfer_time_ms": 5.2
+        }
+        result = receiver.receive_and_process_payload(packet)
+        stats = receiver.outcome_store.get_summary_stats()
+        print(f"\n[Outcome Store Summary] Total Windows: {stats['total_windows']} | Saved: {stats['overall_bandwidth_saved_pct']}%")
+        import os
+        if os.path.exists("logs/test_cloud_outcomes.csv"):
+            os.remove("logs/test_cloud_outcomes.csv")
+        print("Stage 7 Cloud Receiver test complete.")
+    else:
+        receiver = CloudReceiver(host=args.host, port=args.port, log_file="logs/outcomes.csv")
+        try:
+            receiver.start_socket_server(blocking=True)
+        except KeyboardInterrupt:
+            receiver.stop_server()
+            print("\nCloud Receiver server stopped.")
