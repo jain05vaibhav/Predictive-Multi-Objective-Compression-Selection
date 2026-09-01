@@ -1,4 +1,7 @@
 {
   "enabled": false,
-  "timestamp": 1788273763.448046
+  "override_cpu_temp": null,
+  "override_bandwidth_kbps": null,
+  "override_entropy": null,
+  "timestamp": 0
 }
