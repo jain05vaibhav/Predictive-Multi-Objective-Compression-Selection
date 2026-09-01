@@ -85,22 +85,53 @@ def main():
     else:
         st.sidebar.info("Awaiting live camera capture...")
 
-    # Sidebar What-If Simulator
+    # Sidebar Live Remote Factor Control (Raspberry Pi Override)
     st.sidebar.markdown("---")
-    st.sidebar.subheader("🧪 What-If Factor Simulator")
-    with st.sidebar.expander("Simulate Condition Shifts", expanded=False):
-        sim_temp = st.slider("Simulated SoC Temp (°C)", 30.0, 85.0, 42.0, 1.0)
-        sim_bw = st.slider("Simulated Bandwidth (kbps)", 50.0, 1500.0, 1000.0, 50.0)
-        sim_entropy = st.slider("Simulated Shannon Entropy (H)", 0.0, 4.0, 1.2, 0.1)
+    st.sidebar.subheader("🎮 Remote Edge Factor Injection")
+    override_file = "logs/edge_overrides.json"
+    
+    current_overrides = {}
+    if os.path.exists(override_file):
+        try:
+            with open(override_file, "r", encoding="utf-8") as f:
+                current_overrides = json.load(f)
+        except Exception:
+            pass
 
-        from edge.stage4_decision import DecisionStage
-        sim_engine = DecisionStage()
-        sim_feat = {"window_id": 999, "entropy": sim_entropy, "variance": 0.05}
-        sim_pred = {"predicted_cpu_temp": sim_temp, "predicted_cpu_load": 25.0, "predicted_bandwidth_kbps": sim_bw, "is_throttling_risk": (sim_temp >= 70.0)}
-        sim_dec = sim_engine.select_strategy(sim_feat, sim_pred)
+    is_override_active = current_overrides.get("enabled", False)
+    mode = st.sidebar.radio(
+        "Raspberry Pi Mode",
+        ["🟢 Real Hardware Sensors", "🔴 Live Factor Override"],
+        index=1 if is_override_active else 0,
+        help="Inject custom environmental factors into the live Raspberry Pi decision loop"
+    )
+
+    if mode == "🔴 Live Factor Override":
+        st.sidebar.caption("⚡ Injected factors sent to Pi over TCP socket on next window:")
+        c_temp = st.sidebar.slider("Override SoC Temp (°C)", 30.0, 85.0, float(current_overrides.get("override_cpu_temp", 78.0)), 1.0)
+        c_bw = st.sidebar.slider("Override Bandwidth (kbps)", 50.0, 1500.0, float(current_overrides.get("override_bandwidth_kbps", 120.0)), 25.0)
+        c_ent = st.sidebar.slider("Override Shannon Entropy (H)", 0.0, 4.0, float(current_overrides.get("override_entropy", 0.2)), 0.1)
         
-        st.markdown(f"**Optimal Codec:** `{sim_dec['chosen_compressor'].upper()}`")
-        st.caption(f"Score: `{sim_dec['composite_score']:+.3f}` | Weights: $w_1$={sim_dec['adapted_weights']['w1_ratio']:.2f}, $w_2$={sim_dec['adapted_weights']['w2_energy']:.2f}, $w_3$={sim_dec['adapted_weights']['w3_latency']:.2f}")
+        # Save to overrides file
+        new_ov = {
+            "enabled": True,
+            "override_cpu_temp": c_temp,
+            "override_bandwidth_kbps": c_bw,
+            "override_entropy": c_ent,
+            "timestamp": time.time()
+        }
+        os.makedirs("logs", exist_ok=True)
+        with open(override_file, "w", encoding="utf-8") as f:
+            json.dump(new_ov, f, indent=2)
+        st.sidebar.success(f"📡 Active Override: {c_temp:.0f}°C, {c_bw:.0f} kbps, H={c_ent:.2f}")
+    else:
+        if is_override_active:
+            # Reset to disabled
+            new_ov = {"enabled": False, "timestamp": time.time()}
+            os.makedirs("logs", exist_ok=True)
+            with open(override_file, "w", encoding="utf-8") as f:
+                json.dump(new_ov, f, indent=2)
+        st.sidebar.info("Raspberry Pi using physical SoC & DHT22 hardware sensors.")
 
     decisions_df, outcomes_df = load_data()
 

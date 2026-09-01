@@ -209,8 +209,17 @@ class CloudReceiver:
                             break
                         data.extend(chunk)
 
-                    # Send ACK
-                    conn.sendall(b"ACK")
+                    # Send ACK and Cloud Control Overrides to Raspberry Pi
+                    control_dict = {"status": "ACK", "overrides": {}}
+                    override_file = "logs/edge_overrides.json"
+                    if os.path.exists(override_file):
+                        try:
+                            with open(override_file, "r", encoding="utf-8") as f_ov:
+                                control_dict["overrides"] = json.load(f_ov)
+                        except Exception:
+                            pass
+                    resp_bytes = json.dumps(control_dict).encode("utf-8")
+                    conn.sendall(resp_bytes)
 
                     # Process packet
                     header_len = int.from_bytes(data[:4], "big")

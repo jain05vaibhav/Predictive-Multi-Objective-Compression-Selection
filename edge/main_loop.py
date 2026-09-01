@@ -47,8 +47,6 @@ class EdgePipeline:
         self.stage6 = TransmissionStage(host=target_host, port=cloud_port, enable_network=enable_net)
         self.cycle_count = 0
 
-
-
     def run_window_cycle(self) -> Dict[str, Any]:
         """Runs a single end-to-end pipeline cycle across edge stages for one window."""
         self.cycle_count += 1
@@ -62,9 +60,20 @@ class EdgePipeline:
         # 3. Stage 3: Forecast Next State
         predictions = self.stage3.predict(window)
 
-        # Inject simulated scenario shifts if enabled for live demonstration
+        # Check for Live Cloud Control Overrides sent from Streamlit Dashboard
         scenario_label = "Live Hardware"
-        if self.scenario_shift:
+        cloud_overrides = getattr(self.stage6, "latest_cloud_control", {})
+        if cloud_overrides and cloud_overrides.get("enabled", False):
+            scenario_label = "Cloud Dashboard Manual Override"
+            if "override_cpu_temp" in cloud_overrides and cloud_overrides["override_cpu_temp"] is not None:
+                predictions["predicted_cpu_temp"] = float(cloud_overrides["override_cpu_temp"])
+                if float(cloud_overrides["override_cpu_temp"]) >= 70.0:
+                    predictions["is_throttling_risk"] = True
+            if "override_bandwidth_kbps" in cloud_overrides and cloud_overrides["override_bandwidth_kbps"] is not None:
+                predictions["predicted_bandwidth_kbps"] = float(cloud_overrides["override_bandwidth_kbps"])
+            if "override_entropy" in cloud_overrides and cloud_overrides["override_entropy"] is not None:
+                features["entropy"] = float(cloud_overrides["override_entropy"])
+        elif self.scenario_shift:
             phase = self.cycle_count % 9
             if phase in (4, 5, 6):
                 scenario_label = "Simulated Bandwidth Congestion (120 kbps)"

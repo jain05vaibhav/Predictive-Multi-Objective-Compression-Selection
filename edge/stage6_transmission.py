@@ -34,13 +34,14 @@ class TransmissionStage:
         self.deferral_queue: deque = deque()
         self.total_transmitted_bytes = 0
         self.total_packets_sent = 0
+        self.latest_cloud_control: Dict[str, Any] = {}
 
     def get_queue_depth(self) -> int:
         """Returns the number of deferred packets currently waiting in the backlog."""
         return len(self.deferral_queue)
 
     def _send_over_socket(self, packet_bytes: bytes) -> Tuple[bool, float]:
-        """Sends framed packet over TCP socket and measures round-trip time."""
+        """Sends framed packet over TCP socket and measures round-trip time, storing cloud control overrides."""
         t_start = time.perf_counter_ns()
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -49,10 +50,19 @@ class TransmissionStage:
                 # 4-byte length prefix framing
                 length_header = len(packet_bytes).to_bytes(4, byteorder="big")
                 s.sendall(length_header + packet_bytes)
-                # Receive ACK
-                ack = s.recv(1024)
+                # Receive Cloud Response (ACK + Overrides)
+                resp = s.recv(4096)
                 t_end = time.perf_counter_ns()
                 rtt_ms = (t_end - t_start) / 1_000_000.0
+
+                if resp:
+                    try:
+                        resp_json = json.loads(resp.decode("utf-8"))
+                        if isinstance(resp_json, dict) and "overrides" in resp_json:
+                            self.latest_cloud_control = resp_json["overrides"]
+                    except Exception:
+                        pass
+
                 return True, round(rtt_ms, 3)
         except Exception:
             t_end = time.perf_counter_ns()
