@@ -41,74 +41,71 @@ flowchart LR
 
 ## 3. Level-1: Detailed Data Flow Diagram
 
-The Level-1 DFD decomposes the system into its primary functional processes across the Edge and Cloud layers, detailing storage interactions, queueing resilience, and the closed-loop control channel.
+The Level-1 DFD decomposes the system into its primary functional processes across the Edge and Cloud layers, detailing storage interactions, queueing resilience, and the closed-loop control channel in a clean, structured pipeline.
 
 ```mermaid
 flowchart TD
     %% External Entities
-    E1["🔌 E1: Hardware Sensors<br/>(DHT22, CSI Camera, BCM2837 SoC)"]
+    E1["🔌 E1: Hardware Sensors<br/>(DHT22, CSI Camera, SoC)"]
     E2["👤 E2: Dashboard User / Operator"]
 
-    %% Data Stores
-    D1[("💾 D1: RAM Sliding Buffer<br/>(5-Sample Window)")]
-    D2[("💾 D2: RAM FIFO Queue<br/>(Offline Deferral)")]
-    D3[("📁 D3: decisions.csv<br/>(Weights, Entropy, Forecasts)")]
-    D4[("📁 D4: outcomes.csv<br/>(Decompressed Metrics)")]
-    D5[("⚙️ D5: edge_overrides.json<br/>(Control Parameters)")]
-
-    %% Edge Processes
+    %% Edge Device Layer
     subgraph EDGE ["🖥️ Edge Device Layer (Raspberry Pi 3B+)"]
-        P1["⚙️ P1: Telemetry Acquisition & Windowing<br/>(Stage 1)"]
-        P2["⚙️ P2: Statistical Feature Extraction<br/>(Stage 2)"]
-        P3["⚙️ P3: EWMA State Forecasting<br/>(Stage 3)"]
-        P4["⚙️ P4: Multi-Objective Decision Engine<br/>(Stage 4)"]
-        P5["⚙️ P5: Multi-Codec Compression Engine<br/>(Stage 5)"]
-        P6["⚙️ P6: Transmission & Deferral Manager<br/>(Stage 6)"]
+        direction TB
+        P1["⚙️ P1: Telemetry Acquisition & Windowing (Stage 1)"]
+        D1[("💾 D1: RAM Sliding Buffer")]
+        
+        P1 <-->|"Window Buffering"| D1
+
+        subgraph ANALYTICS ["Analysis & Forecasting"]
+            P2["⚙️ P2: Feature Extraction<br/>(Entropy, Variance, RoC)"]
+            P3["⚙️ P3: State Forecasting<br/>(EWMA & Holt's Model)"]
+        end
+
+        P4["⚙️ P4: Multi-Objective Decision Engine (Stage 4)"]
+        P5["⚙️ P5: Multi-Codec Compression Engine (Stage 5)"]
+        P6["⚙️ P6: Transmission & Deferral Manager (Stage 6)"]
+        D2[("💾 D2: Offline RAM FIFO Queue")]
+
+        P1 -->|"Window JSON"| P2
+        P1 -->|"SoC Metrics"| P3
+        P1 -->|"Raw Bytes"| P5
+
+        P2 -->|"Information Features"| P4
+        P3 -->|"State Forecasts"| P4
+
+        P4 -->|"Selected Codec & Level"| P5
+        P5 -->|"Compressed Packet"| P6
+        P6 <-->|"Backup / Drain"| D2
     end
 
-    %% Cloud & Dashboard Processes
+    %% Cloud & Dashboard Layer
     subgraph CLOUD ["☁️ Cloud & Presentation Layer"]
-        P7["⚙️ P7: Cloud Ingestion & Decompression<br/>(Stage 7)"]
-        P8["📊 P8: Streamlit Live Visualization<br/>(Dashboard)"]
+        direction TB
+        P7["⚙️ P7: Cloud Ingestion & Decompression (Stage 7)"]
+        P8["📊 P8: Streamlit Telemetry Dashboard"]
+        
+        D3[("📁 D3: decisions.csv")]
+        D4[("📁 D4: outcomes.csv")]
+
+        P7 -->|"Decompressed Frame & Telemetry"| P8
+        P7 -.->|"Log Outcome Metrics"| D4
+        D3 -.->|"Read Decisions"| P8
+        D4 -.->|"Read Outcomes"| P8
     end
 
-    %% Data Flows
-    E1 -->|"DF1: Raw Sensor Signals & Camera Frames"| P1
-    D5 -.->|"DF2: Active Override Injections"| P1
-    
-    P1 -->|"DF3: 1-sec Sample"| D1
-    D1 -->|"DF4: 5-Sample Multimodal Window"| P1
-    
-    P1 -->|"DF5: Serialized Window JSON"| P2
-    P1 -->|"DF6: Raw Payload Bytes"| P5
+    %% Shared Config Store
+    D5[("⚙️ D5: edge_overrides.json")]
 
-    P2 -->|"DF7: Entropy H(X), Variance, RoC"| P4
+    %% End-to-End Inter-Layer Flows
+    E1 -->|"Raw Sensor & Camera Readings"| P1
+    P4 -.->|"Log Selected Codec"| D3
+    P6 ==>|"TCP Wire Stream (Framed)"| P7
     
-    P1 -->|"DF8: Current Edge SoC State"| P3
-    P3 -->|"DF9: 1-Step Ahead State Forecasts"| P4
-    
-    P4 -->|"DF10: Optimal Codec Selection"| P5
-    P4 -->|"DF11: Decision Audit Record"| D3
-    
-    P5 -->|"DF12: Binary Compressed Packet"| P6
-    
-    %% Resilience & Network Handling
-    P6 -.->|"DF13a: Network Offline: Enqueue Deferred"| D2
-    D2 -.->|"DF13b: Network Active: Dequeue Oldest"| P6
-    
-    %% Transmission to Cloud
-    P6 ==>|"DF14: TCP Socket Stream (Length-Prefixed)"| P7
-    
-    P7 -->|"DF15: TCP ACK / Health Response"| P6
-    P7 -->|"DF16: Outcome Audit Record"| D4
-    P7 -->|"DF17: Reconstructed Frame (latest_frame.jpg)"| P8
-    
-    D4 -->|"DF18: Outcome Telemetry Stream"| P8
-    D3 -->|"DF19: Decision Telemetry Stream"| P8
-    
-    P8 -->|"DF20: Live Performance Metrics & Visuals"| E2
-    E2 -->|"DF21: Slider Tweaks & Codec Overrides"| P8
-    P8 -->|"DF22: Persist Override Parameters"| D5
+    P8 -->|"Live Charts & Telemetry Feed"| E2
+    E2 -.->|"Simulation Sliders & Codec Overrides"| P8
+    P8 -.->|"Persist Parameters"| D5
+    D5 -.->|"Dynamic Overrides"| P1
 
     %% Styling
     classDef entity fill:#e1f5fe,stroke:#0288d1,stroke-width:2px,color:#01579b;
