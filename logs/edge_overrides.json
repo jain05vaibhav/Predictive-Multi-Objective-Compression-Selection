@@ -1,7 +1,7 @@
 {
-  "enabled": false,
-  "override_cpu_temp": null,
-  "override_bandwidth_kbps": null,
-  "override_entropy": null,
-  "timestamp": 0
+  "enabled": true,
+  "override_cpu_temp": 78.0,
+  "override_bandwidth_kbps": 1200.0,
+  "override_entropy": 1.4,
+  "timestamp": 1791878290.9411736
 }

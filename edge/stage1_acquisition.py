@@ -22,12 +22,14 @@ class Window:
         window_id: int,
         data: List[Any],
         data_type: str = "numeric",
-        timestamp: Optional[float] = None
+        timestamp: Optional[float] = None,
+        criticality: str = "routine"
     ):
         self.window_id = window_id
         self.data = data
         self.data_type = data_type
         self.timestamp = timestamp if timestamp is not None else time.time()
+        self.criticality = criticality
 
     @property
     def sample_count(self) -> int:
@@ -39,6 +41,7 @@ class Window:
             "window_id": self.window_id,
             "timestamp": self.timestamp,
             "data_type": self.data_type,
+            "criticality": self.criticality,
             "sample_count": self.sample_count,
             "data": self.data
         }
@@ -87,12 +90,14 @@ class AcquisitionStage:
         source: Optional[Any] = None,
         window_size: int = WINDOW_SIZE_N,
         max_wait_time: float = DEFAULT_SAMPLE_TIMEOUT,
-        data_type: str = "numeric"
+        data_type: str = "numeric",
+        criticality: str = "routine"
     ):
         self.source = source if source is not None else RPiTelemetryHub()
         self.window_size = window_size
         self.max_wait_time = max_wait_time
         self.data_type = data_type
+        self.criticality = criticality
         self.window_counter = 0
 
     def read_sample(self, source_override: Optional[Any] = None) -> Any:
@@ -123,7 +128,8 @@ class AcquisitionStage:
         source: Optional[Any] = None,
         window_size: Optional[int] = None,
         timeout: Optional[float] = None,
-        data_type: Optional[str] = None
+        data_type: Optional[str] = None,
+        criticality: Optional[str] = None
     ) -> Window:
         """
         Gathers samples until window_size is reached or timeout expires.
@@ -132,6 +138,7 @@ class AcquisitionStage:
         n = window_size if window_size is not None else self.window_size
         t_max = timeout if timeout is not None else self.max_wait_time
         d_type = data_type if data_type is not None else self.data_type
+        crit = criticality if criticality is not None else self.criticality
 
         buffer: List[Any] = []
         start_time = time.time()
@@ -149,7 +156,8 @@ class AcquisitionStage:
             window_id=self.window_counter,
             data=buffer,
             data_type=d_type,
-            timestamp=start_time
+            timestamp=start_time,
+            criticality=crit
         )
         return window
 

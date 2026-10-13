@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AURA-EDGE // Autonomous IoT Compression Command Center</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <!-- Chart.js from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+  <!-- Navigation Bar -->
+  <header class="navbar">
+    <div class="brand">
+      <div class="brand-icon">◈</div>
+      <div>
+        <div class="brand-title">AURA-EDGE // COMMAND CENTER</div>
+      </div>
+      <span class="brand-badge">8-STAGE ACTIVE</span>
+    </div>
+
+    <div class="nav-actions">
+      <div class="live-pill" id="live-indicator">
+        <span class="pulse-dot"></span>
+        <span id="connection-status">CONNECTED (1.2s POLLING)</span>
+      </div>
+      <button class="btn-secondary" id="btn-manual-refresh">
+        <span>↻</span> Force Refresh
+      </button>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <!-- Top KPI Performance Cards -->
+    <section class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">Windows Processed</span>
+          <span class="kpi-icon">📦</span>
+        </div>
+        <div class="kpi-value" id="kpi-windows">--</div>
+        <div class="kpi-subtext">
+          <span class="trend-pos" id="kpi-raw-bytes">-- KB</span> Ingested
+        </div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">Bandwidth Reduction</span>
+          <span class="kpi-icon">⚡</span>
+        </div>
+        <div class="kpi-value" id="kpi-saved-pct">--%</div>
+        <div class="kpi-subtext">
+          <span class="trend-pos">Saved over wire</span> (Radio Duty Cut)
+        </div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">Mean Compression Ratio</span>
+          <span class="kpi-icon">📐</span>
+        </div>
+        <div class="kpi-value" id="kpi-ratio">--x</div>
+        <div class="kpi-subtext">
+          Across multi-modal streams
+        </div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">Mean Codec Latency</span>
+          <span class="kpi-icon">⏱️</span>
+        </div>
+        <div class="kpi-value" id="kpi-latency">-- ms</div>
+        <div class="kpi-subtext">
+          Target &lt; 15.0 ms
+        </div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">Active Policy Codec</span>
+          <span class="kpi-icon">🎯</span>
+        </div>
+        <div class="kpi-value" id="kpi-active-codec" style="color: var(--cyan);">LZ4</div>
+        <div class="kpi-subtext">
+          Action: <span class="trend-pos" id="kpi-active-action">TRANSMIT</span>
+        </div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">Decision Overhead</span>
+          <span class="kpi-icon">🛡️</span>
+        </div>
+        <div class="kpi-value" id="kpi-overhead-ms">-- ms</div>
+        <div class="kpi-subtext">
+          RAM: <span id="kpi-overhead-ram">-- MB</span> (Sec 2.12 Valid)
+        </div>
+      </div>
+    </section>
+
+    <!-- HUD Grid: Physical Telemetry + CSI Camera + Factor Injection -->
+    <section class="hud-grid">
+
+      <!-- Panel 1: Physical SoC & DHT22 Telemetry -->
+      <div class="hud-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>🌡️</span> Physical SoC & Environment Telemetry
+          </div>
+          <span class="brand-badge" style="background: rgba(16, 185, 129, 0.15); color: var(--emerald); border-color: rgba(16, 185, 129, 0.3);">
+            BCM2837 SoC
+          </span>
+        </div>
+
+        <div class="telemetry-rows">
+          <div class="telemetry-item">
+            <div class="tel-label">SoC Core Temp</div>
+            <div class="tel-val" id="tel-cpu-temp">-- °C</div>
+          </div>
+          <div class="telemetry-item">
+            <div class="tel-label">CPU Utilization</div>
+            <div class="tel-val" id="tel-cpu-percent">-- %</div>
+          </div>
+          <div class="telemetry-item">
+            <div class="tel-label">Clock Frequency</div>
+            <div class="tel-val" id="tel-cpu-freq">-- MHz</div>
+          </div>
+          <div class="telemetry-item">
+            <div class="tel-label">Core Voltage</div>
+            <div class="tel-val" id="tel-core-volts">-- V</div>
+          </div>
+          <div class="telemetry-item">
+            <div class="tel-label">DHT22 Ambient Temp</div>
+            <div class="tel-val" id="tel-ambient-temp" style="color: var(--violet);">-- °C</div>
+          </div>
+          <div class="telemetry-item">
+            <div class="tel-label">DHT22 Relative Humidity</div>
+            <div class="tel-val" id="tel-ambient-humidity" style="color: var(--violet);">-- %</div>
+          </div>
+          <div class="telemetry-item">
+            <div class="tel-label">Estimated Battery</div>
+            <div class="tel-val" id="tel-battery" style="color: var(--emerald);">-- %</div>
+          </div>
+          <div class="telemetry-item">
+            <div class="tel-label">SoC Throttling Flags</div>
+            <div class="tel-val" id="tel-throttled" style="font-size: 14px;">0x0 (Nominal)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel 2: CSI Camera Feed -->
+      <div class="hud-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>📷</span> CSI Camera Frame Buffer (OV5647)
+          </div>
+          <span class="brand-badge">15-PIN CSI</span>
+        </div>
+
+        <div class="camera-wrapper">
+          <img src="/api/camera/latest" alt="Live Camera Capture" class="camera-img" id="camera-frame">
+          <div class="camera-hud-overlay">
+            <div class="hud-top">
+              <span>● REC // 1080P OPTICAL</span>
+              <span id="cam-timestamp">LIVE</span>
+            </div>
+            <div style="font-family: var(--font-mono); font-size: 9px; color: var(--text-dim); text-align: right;">
+              STAGE 1 BUFFERED
+            </div>
+          </div>
+          <div class="hud-radar-sweep"></div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+          <span style="font-size: 11px; color: var(--text-dim); font-family: var(--font-mono);">
+            Resolution: 640x480 RGB (Window T=10s)
+          </span>
+          <button class="btn-secondary" id="btn-refresh-cam" style="padding: 4px 10px; font-size: 11px;">
+            Snap Frame
+          </button>
+        </div>
+      </div>
+
+      <!-- Panel 3: Remote Factor Injection & Environmental Simulation -->
+      <div class="hud-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>🎛️</span> Remote Factor Injection Control
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <label style="font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+              <input type="checkbox" id="override-enabled" style="accent-color: var(--cyan); cursor: pointer;">
+              <span>Override Edge</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="injection-controls">
+          <div class="slider-group">
+            <div class="slider-header">
+              <span>Synthetic SoC Temp:</span>
+              <span id="val-override-temp">45.0 °C</span>
+            </div>
+            <input type="range" min="30" max="85" step="0.5" value="45" class="cyber-slider" id="slider-override-temp">
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-header">
+              <span>Synthetic Uplink Bandwidth:</span>
+              <span id="val-override-bw">1000 kbps</span>
+            </div>
+            <input type="range" min="50" max="5000" step="50" value="1000" class="cyber-slider" id="slider-override-bw">
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-header">
+              <span>Synthetic Workload Entropy ($H$):</span>
+              <span id="val-override-entropy">1.50 bits</span>
+            </div>
+            <input type="range" min="0.1" max="4.0" step="0.05" value="1.50" class="cyber-slider" id="slider-override-entropy">
+          </div>
+
+          <div class="preset-grid">
+            <button class="btn-preset" data-temp="78.0" data-bw="1200" data-entropy="1.4">
+              🔥 Extreme Thermal (78°C)
+            </button>
+            <button class="btn-preset" data-temp="44.0" data-bw="80" data-entropy="1.8">
+              📉 Bandwidth Pinch (80k)
+            </button>
+            <button class="btn-preset" data-temp="52.0" data-bw="2500" data-entropy="3.4">
+              ⚡ High Entropy (3.4b)
+            </button>
+            <button class="btn-preset" data-temp="40.0" data-bw="2000" data-entropy="1.2">
+              🌱 Nominal Auto (40°C)
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Architecture Tabs Navigation -->
+    <section>
+      <div class="tabs-nav">
+        <button class="tab-btn active" data-tab="tab-forecasting">
+          <span>📈</span> Objective O1: EWMA Dual-Track Predictor
+        </button>
+        <button class="tab-btn" data-tab="tab-pareto">
+          <span>🎯</span> Objective O2 & O3: Pareto Optimization & Bandit
+        </button>
+        <button class="tab-btn" data-tab="tab-profiler">
+          <span>🔬</span> Objective O4: Self-Calibrating Profiler
+        </button>
+        <button class="tab-btn" data-tab="tab-radio">
+          <span>📡</span> Objective O5: Radio Duty-Cycle Scheduler
+        </button>
+        <button class="tab-btn" data-tab="tab-overhead">
+          <span>🛡️</span> Section 2.12: Controller Overhead Validation
+        </button>
+      </div>
+
+      <!-- Tab 1: Forecasting Pane -->
+      <div class="tab-content active" id="tab-forecasting" style="margin-top: 18px;">
+        <div class="charts-grid-2">
+          <div class="chart-card">
+            <div class="chart-header">
+              <span class="chart-title">Resource Track: SoC Temp & Available Bandwidth (EWMA)</span>
+              <span class="brand-badge">α = 0.3</span>
+            </div>
+            <div class="chart-canvas-wrapper">
+              <canvas id="chart-forecast-resources"></canvas>
+            </div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-header">
+              <span class="chart-title">Workload Track: Future Shannon Entropy Trend ($\hat{H}_{t+1}$)</span>
+              <span class="brand-badge">Slope & Variance</span>
+            </div>
+            <div class="chart-canvas-wrapper">
+              <canvas id="chart-forecast-workload"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 2: Pareto Frontier & Codec Distribution -->
+      <div class="tab-content" id="tab-pareto" style="margin-top: 18px;">
+        <div class="charts-grid-2">
+          <div class="chart-card">
+            <div class="chart-header">
+              <span class="chart-title">Multi-Objective Pareto Trade-Off: Ratio vs Latency</span>
+              <span class="brand-badge">Safety Gate ε &le; 0.05</span>
+            </div>
+            <div class="chart-canvas-wrapper">
+              <canvas id="chart-pareto-scatter"></canvas>
+            </div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-header">
+              <span class="chart-title">Codecs Selected by Hierarchical Decision Engine</span>
+              <span class="brand-badge">Bandit η = 0.05</span>
+            </div>
+            <div class="chart-canvas-wrapper">
+              <canvas id="chart-codec-pie"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 3: Self-Calibrating Profiler Matrix -->
+      <div class="tab-content" id="tab-profiler" style="margin-top: 18px;">
+        <div class="table-card" style="padding: 20px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <div>
+              <h3 style="font-family: var(--font-display); font-size: 16px; font-weight: 700;">
+                Empirical Cost Calibration Matrix ($\bar{C}_k \leftarrow \bar{C}_k + \beta(C_{\text{meas}} - \bar{C}_k)$)
+              </h3>
+              <p style="font-size: 12px; color: var(--text-dim); margin-top: 2px;">
+                Online adaptive learning rate &beta; = 0.15 conditioned on data modality and entropy context buckets.
+              </p>
+            </div>
+            <span class="brand-badge">OBJECTIVE O4</span>
+          </div>
+
+          <div style="overflow-x: auto;">
+            <table class="cyber-table" id="table-profiler-matrix">
+              <thead>
+                <tr>
+                  <th>Context Bucket</th>
+                  <th>Codec</th>
+                  <th>Empirical Ratio</th>
+                  <th>Latency (&micro;s / KB)</th>
+                  <th>Energy Proxy (&micro;J / KB)</th>
+                  <th>Reconstruction Error</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-profiler">
+                <!-- Dynamically Populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 4: Radio Duty Cycle -->
+      <div class="tab-content" id="tab-radio" style="margin-top: 18px;">
+        <div class="charts-grid-2">
+          <div class="chart-card">
+            <div class="chart-header">
+              <span class="chart-title">Transceiver State & Buffer Backlog Depth</span>
+              <span class="brand-badge">Duty Sleep Interval: 0.1s</span>
+            </div>
+            <div class="chart-canvas-wrapper">
+              <canvas id="chart-radio-backlog"></canvas>
+            </div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-header">
+              <span class="chart-title">Transmission Decisions: Transmit vs Defer Queue</span>
+              <span class="brand-badge">Objective O5 Joint Coupling</span>
+            </div>
+            <div class="chart-canvas-wrapper">
+              <canvas id="chart-radio-actions"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 5: Section 2.12 Overhead -->
+      <div class="tab-content" id="tab-overhead" style="margin-top: 18px;">
+        <div class="charts-grid-2">
+          <div class="chart-card">
+            <div class="chart-header">
+              <span class="chart-title">Decision Engine Worst-Case Latency vs Real-Time Bound (1.0 ms)</span>
+              <span class="brand-badge">Compliance: PASS</span>
+            </div>
+            <div class="chart-canvas-wrapper">
+              <canvas id="chart-overhead-latency"></canvas>
+            </div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-header">
+              <span class="chart-title">Controller Memory RSS Footprint (MB)</span>
+              <span class="brand-badge">Budget &lt; 150 MB</span>
+            </div>
+            <div class="chart-canvas-wrapper">
+              <canvas id="chart-overhead-ram"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Cloud Verified Ingestion Stream Table -->
+    <section>
+      <div class="table-card">
+        <div style="padding: 16px 20px; border-bottom: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 16px;">☁️</span>
+            <span style="font-family: var(--font-display); font-size: 15px; font-weight: 700;">
+              Stage 8 Cloud Receiver — Verified Ingestion Stream
+            </span>
+          </div>
+          <span style="font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);">
+            Wire Port: 8765 | TCP Wire-Framed
+          </span>
+        </div>
+
+        <div style="overflow-x: auto;">
+          <table class="cyber-table">
+            <thead>
+              <tr>
+                <th>Window ID</th>
+                <th>Modality</th>
+                <th>Criticality</th>
+                <th>Codec</th>
+                <th>Raw Size</th>
+                <th>Compressed</th>
+                <th>Ratio</th>
+                <th>Codec Latency</th>
+                <th>Error Bound</th>
+                <th>Cloud Verification</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-outcomes">
+              <tr>
+                <td colspan="10" style="text-align: center; color: var(--text-dim); padding: 24px;">
+                  Listening for incoming TCP verified transmission frames...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Application Logic -->
+  <script src="/js/app.js"></script>
+</body>
+</html>

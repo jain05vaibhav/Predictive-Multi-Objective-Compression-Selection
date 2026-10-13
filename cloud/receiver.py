@@ -209,18 +209,6 @@ class CloudReceiver:
                             break
                         data.extend(chunk)
 
-                    # Send ACK and Cloud Control Overrides to Raspberry Pi
-                    control_dict = {"status": "ACK", "overrides": {}}
-                    override_file = "logs/edge_overrides.json"
-                    if os.path.exists(override_file):
-                        try:
-                            with open(override_file, "r", encoding="utf-8") as f_ov:
-                                control_dict["overrides"] = json.load(f_ov)
-                        except Exception:
-                            pass
-                    resp_bytes = json.dumps(control_dict).encode("utf-8")
-                    conn.sendall(resp_bytes)
-
                     # Process packet
                     header_len = int.from_bytes(data[:4], "big")
                     header_json = json.loads(data[4:4 + header_len].decode("utf-8"))
@@ -248,7 +236,31 @@ class CloudReceiver:
                         "w3_latency": header_json.get("w3_latency", 0.2),
                         "w4_error": header_json.get("w4_error", 0.1)
                     }
-                    self.receive_and_process_payload(packet_dict)
+                    proc_res = self.receive_and_process_payload(packet_dict)
+
+                    # Send ACK, Outcome Log (Objective O3, O4 closed loop) and Overrides to Raspberry Pi
+                    control_dict = {
+                        "status": "ACK",
+                        "outcome_log": {
+                            "window_id": proc_res.get("window_id", packet_dict["window_id"]),
+                            "compressor": proc_res.get("compressor", packet_dict["compressor"]),
+                            "ratio": round(packet_dict["raw_size_bytes"] / max(1, packet_dict["compressed_size_bytes"]), 4),
+                            "latency_ms": packet_dict["execution_time_ms"],
+                            "energy_uj": packet_dict["cpu_energy_proxy_uj"],
+                            "error": proc_res.get("reconstruction_error", 0.0),
+                            "status": proc_res.get("status", "verified")
+                        },
+                        "overrides": {}
+                    }
+                    override_file = "logs/edge_overrides.json"
+                    if os.path.exists(override_file):
+                        try:
+                            with open(override_file, "r", encoding="utf-8") as f_ov:
+                                control_dict["overrides"] = json.load(f_ov)
+                        except Exception:
+                            pass
+                    resp_bytes = json.dumps(control_dict).encode("utf-8")
+                    conn.sendall(resp_bytes)
             except socket.timeout:
                 continue
             except Exception:

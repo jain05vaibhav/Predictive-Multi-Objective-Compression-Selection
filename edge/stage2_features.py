@@ -194,11 +194,14 @@ class FeatureExtractionStage:
         series = self._extract_numeric_series(raw_data, feature_key=feature_key)
         sample_count = len(raw_data) if isinstance(raw_data, list) else len(series)
 
+        criticality = getattr(window, "criticality", "routine") if hasattr(window, "criticality") else (window.get("criticality", "routine") if isinstance(window, dict) else "routine")
+
         if len(series) == 0:
             return {
                 "window_id": window_id,
                 "timestamp": timestamp,
                 "data_type": data_type,
+                "criticality": criticality,
                 "sample_count": sample_count,
                 "entropy": 0.0,
                 "variance": 0.0,
@@ -216,6 +219,7 @@ class FeatureExtractionStage:
             "window_id": window_id,
             "timestamp": timestamp,
             "data_type": data_type,
+            "criticality": criticality,
             "sample_count": sample_count,
             "entropy": entropy,
             "variance": variance,
@@ -248,3 +252,7 @@ if __name__ == "__main__":
     noise_feats = extractor.extract_features(noise_win)
     print(f"Uniform noise window (1000 samples, 16 bins): H={noise_feats['entropy']:.4f} (theoretical max ~ 4.0000)")
     print("Stage 2 execution complete.")
+
+
+FeatureExtractor = FeatureExtractionStage
+
