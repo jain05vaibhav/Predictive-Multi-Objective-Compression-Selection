@@ -91,6 +91,10 @@ class CloudReceiver:
         t1 = time.perf_counter_ns()
         decompress_latency_ms = (t1 - t0) / 1_000_000.0
 
+        # Accurately derive true raw uncompressed size if missing or matching compressed payload
+        if decompressed_bytes and (raw_size <= 0 or (raw_size == comp_size and len(decompressed_bytes) > comp_size)):
+            raw_size = len(decompressed_bytes)
+
         # 2. Verify error
         actual_ratio = round(raw_size / max(1, comp_size), 4)
 
@@ -180,6 +184,9 @@ class CloudReceiver:
         return {
             "window_id": window_id,
             "compressor": compressor,
+            "raw_bytes": raw_size,
+            "compressed_bytes": comp_size,
+            "ratio": actual_ratio,
             "decompressed_bytes_count": len(decompressed_bytes),
             "reconstruction_error": error,
             "decompress_time_ms": round(decompress_latency_ms, 4),
@@ -229,8 +236,8 @@ class CloudReceiver:
                     "timestamp": header_json.get("timestamp", time.time()),
                     "compressor": header_json.get("compressor", "lz4"),
                     "compression_level": header_json.get("compression_level", 1),
-                    "raw_size_bytes": header_json.get("raw_size", len(payload_blob)),
-                    "compressed_size_bytes": header_json.get("comp_size", len(payload_blob)),
+                    "raw_size_bytes": header_json.get("raw_size_bytes", header_json.get("raw_size", len(payload_blob))),
+                    "compressed_size_bytes": header_json.get("compressed_size_bytes", header_json.get("comp_size", len(payload_blob))),
                     "execution_time_ms": header_json.get("execution_time_ms", 0.0),
                     "cpu_energy_proxy_uj": header_json.get("cpu_energy_proxy_uj", 0.0),
                     "payload_bytes": payload_blob,
@@ -254,7 +261,7 @@ class CloudReceiver:
                     "outcome_log": {
                         "window_id": proc_res.get("window_id", packet_dict["window_id"]),
                         "compressor": proc_res.get("compressor", packet_dict["compressor"]),
-                        "ratio": round(packet_dict["raw_size_bytes"] / max(1, packet_dict["compressed_size_bytes"]), 4),
+                        "ratio": proc_res.get("ratio", 1.0),
                         "latency_ms": packet_dict["execution_time_ms"],
                         "energy_uj": packet_dict["cpu_energy_proxy_uj"],
                         "error": proc_res.get("reconstruction_error", 0.0),

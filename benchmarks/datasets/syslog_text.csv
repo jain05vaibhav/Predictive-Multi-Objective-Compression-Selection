@@ -1,0 +1,101 @@
+timestamp,level,service,message
+1788200000.0,INFO,systemd,Started telemetry service unit instance #0.
+1788200001.5,INFO,kernel,bcm2835-wdt: hardware watchdog keepalive ping sequence=1
+1788200003.0,INFO,wpa_supplicant,wlan0: WPA: Key negotiation completed with AP BSSID b8:27:eb:0c:aa:bb
+1788200004.5,NOTICE,dhcpcd,wlan0: renewing lease of 192.168.1.103
+1788200006.0,NOTICE,telemetry-agent,Window #004 compression cycle complete. Codec verified and ACK returned.
+1788200007.5,NOTICE,sshd,Accepted publickey for pi from 192.168.1.50 port 50005 ssh2
+1788200009.0,WARNING,systemd,Started telemetry service unit instance #6.
+1788200010.5,WARNING,kernel,bcm2835-wdt: hardware watchdog keepalive ping sequence=7
+1788200012.0,WARNING,wpa_supplicant,wlan0: WPA: Key negotiation completed with AP BSSID b8:27:eb:12:aa:bb
+1788200013.5,DEBUG,dhcpcd,wlan0: renewing lease of 192.168.1.109
+1788200015.0,DEBUG,telemetry-agent,Window #010 compression cycle complete. Codec verified and ACK returned.
+1788200016.5,DEBUG,sshd,Accepted publickey for pi from 192.168.1.50 port 50011 ssh2
+1788200018.0,INFO,systemd,Started telemetry service unit instance #2.
+1788200019.5,INFO,kernel,bcm2835-wdt: hardware watchdog keepalive ping sequence=13
+1788200021.0,INFO,wpa_supplicant,wlan0: WPA: Key negotiation completed with AP BSSID b8:27:eb:18:aa:bb
+1788200022.5,NOTICE,dhcpcd,wlan0: renewing lease of 192.168.1.115
+1788200024.0,NOTICE,telemetry-agent,Window #016 compression cycle complete. Codec verified and ACK returned.
+1788200025.5,NOTICE,sshd,Accepted publickey for pi from 192.168.1.50 port 50017 ssh2
+1788200027.0,WARNING,systemd,Started telemetry service unit instance #8.
+1788200028.5,WARNING,kernel,bcm2835-wdt: hardware watchdog keepalive ping sequence=19
+1788200030.0,WARNING,wpa_supplicant,wlan0: WPA: Key negotiation completed with AP BSSID b8:27:eb:1e:aa:bb
+1788200031.5,DEBUG,dhcpcd,wlan0: renewing lease of 192.168.1.121
+1788200033.0,DEBUG,telemetry-agent,Window #022 compression cycle complete. Codec verified and ACK returned.
+1788200034.5,DEBUG,sshd,Accepted publickey for pi from 192.168.1.50 port 50023 ssh2
+1788200036.0,INFO,systemd,Started telemetry service unit instance #4.
+1788200037.5,INFO,kernel,bcm2835-wdt: hardware watchdog keepalive ping sequence=25
+1788200039.0,INFO,wpa_supplicant,wlan0: WPA: Key negotiation completed with AP BSSID b8:27:eb:24:aa:bb
+1788200040.5,NOTICE,dhcpcd,wlan0: renewing lease of 192.168.1.127
+1788200042.0,NOTICE,telemetry-agent,Window #028 compression cycle complete. Codec verified and ACK returned.
+1788200043.5,NOTICE,sshd,Accepted publickey for pi from 192.168.1.50 port 50029 ssh2
+1788200045.0,WARNING,systemd,Started telemetry service unit instance #0.
+1788200046.5,WARNING,kernel,bcm2835-wdt: hardware watchdog keepalive ping sequence=31
+1788200048.0,WARNING,wpa_supplicant,wlan0: WPA: Key negotiation completed with AP BSSID b8:27:eb:2a:aa:bb
+1788200049.5,DEBUG,dhcpcd,wlan0: renewing lease of 192.168.1.133
+1788200051.0,DEBUG,telemetry-agent,Window #034 compression cycle complete. Codec verified and ACK returned.
+1788200052.5,DEBUG,sshd,Accepted publickey for pi from 192.168.1.50 port 50035 ssh2
+1788200054.0,INFO,systemd,Started telemetry service unit instance #6.
+1788200055.5,INFO,kernel,bcm2835-wdt: hardware watchdog keepalive ping sequence=37
+1788200057.0,INFO,wpa_supplicant,wlan0: WPA: Key negotiation completed with AP BSSID b8:27:eb:30:aa:bb
+1788200058.5,NOTICE,dhcpcd,wlan0: renewing lease of 192.168.1.139
+1788200060.0,NOTICE,telemetry-agent,Window #040 compression cycle complete. Codec verified and ACK returned.
+1788200061.5,NOTICE,sshd,Accepted publickey for pi from 192.168.1.50 port 50041 ssh2
+1788200063.0,WARNING,systemd,Started telemetry service unit instance #2.
+1788200064.5,WARNING,kernel,bcm2835-wdt: hardware watchdog keepalive ping sequence=43
+1788200066.0,WARNING,wpa_supplicant,wlan0: WPA: Key negotiation completed with AP BSSID b8:27:eb:36:aa:bb
+1788200067.5,DEBUG,dhcpcd,wlan0: renewing lease of 192.168.1.145
+1788200069.0,DEBUG,telemetry-agent,Window #046 compression cycle complete. Codec verified and ACK returned.
+1788200070.5,DEBUG,sshd,Accepted publickey for pi from 192.168.1.50 port 50047 ssh2
+1788200072.0,INFO,systemd,Started telemetry service unit instance #8.
+1788200073.5,INFO,kernel,bcm2835-wdt: hardware watchdog keepalive ping sequence=49
+1788200075.0,INFO,wpa_supplicant,wlan0: WPA: Key negotiation completed with AP BSSID b8:27:eb:3c:aa:bb
+1788200076.5,NOTICE,dhcpcd,wlan0: renewing lease of 192.168.1.101
+1788200078.0,NOTICE,telemetry-agent,Window #052 compression cycle complete. Codec verified and ACK returned.
+1788200079.5,NOTICE,sshd,Accepted publickey for pi from 192.168.1.50 port 50053 ssh2
+1788200081.0,WARNING,systemd,Started telemetry service unit instance #4.
+1788200082.5,WARNING,kernel,bcm2835-wdt: hardware watchdog keepalive ping sequence=55
+1788200084.0,WARNING,wpa_supplicant,wlan0: WPA: Key negotiation completed with AP BSSID b8:27:eb:42:aa:bb
+1788200085.5,DEBUG,dhcpcd,wlan0: renewing lease of 192.168.1.107
+1788200087.0,DEBUG,telemetry-agent,Window #058 compression cycle complete. Codec verified and ACK returned.
+1788200088.5,DEBUG,sshd,Accepted publickey for pi from 192.168.1.50 port 50059 ssh2
+1788200090.0,INFO,systemd,Started telemetry service unit instance #0.
+1788200091.5,INFO,kernel,bcm2835-wdt: hardware watchdog keepalive ping sequence=61
+1788200093.0,INFO,wpa_supplicant,wlan0: WPA: Key negotiation completed with AP BSSID b8:27:eb:48:aa:bb
+1788200094.5,NOTICE,dhcpcd,wlan0: renewing lease of 192.168.1.113
+1788200096.0,NOTICE,telemetry-agent,Window #064 compression cycle complete. Codec verified and ACK returned.
+1788200097.5,NOTICE,sshd,Accepted publickey for pi from 192.168.1.50 port 50065 ssh2
+1788200099.0,WARNING,systemd,Started telemetry service unit instance #6.
+1788200100.5,WARNING,kernel,bcm2835-wdt: hardware watchdog keepalive ping sequence=67
+1788200102.0,WARNING,wpa_supplicant,wlan0: WPA: Key negotiation completed with AP BSSID b8:27:eb:4e:aa:bb
+1788200103.5,DEBUG,dhcpcd,wlan0: renewing lease of 192.168.1.119
+1788200105.0,DEBUG,telemetry-agent,Window #070 compression cycle complete. Codec verified and ACK returned.
+1788200106.5,DEBUG,sshd,Accepted publickey for pi from 192.168.1.50 port 50071 ssh2
+1788200108.0,INFO,systemd,Started telemetry service unit instance #2.
+1788200109.5,INFO,kernel,bcm2835-wdt: hardware watchdog keepalive ping sequence=73
+1788200111.0,INFO,wpa_supplicant,wlan0: WPA: Key negotiation completed with AP BSSID b8:27:eb:54:aa:bb
+1788200112.5,NOTICE,dhcpcd,wlan0: renewing lease of 192.168.1.125
+1788200114.0,NOTICE,telemetry-agent,Window #076 compression cycle complete. Codec verified and ACK returned.
+1788200115.5,NOTICE,sshd,Accepted publickey for pi from 192.168.1.50 port 50077 ssh2
+1788200117.0,WARNING,systemd,Started telemetry service unit instance #8.
+1788200118.5,WARNING,kernel,bcm2835-wdt: hardware watchdog keepalive ping sequence=79
+1788200120.0,WARNING,wpa_supplicant,wlan0: WPA: Key negotiation completed with AP BSSID b8:27:eb:5a:aa:bb
+1788200121.5,DEBUG,dhcpcd,wlan0: renewing lease of 192.168.1.131
+1788200123.0,DEBUG,telemetry-agent,Window #082 compression cycle complete. Codec verified and ACK returned.
+1788200124.5,DEBUG,sshd,Accepted publickey for pi from 192.168.1.50 port 50083 ssh2
+1788200126.0,INFO,systemd,Started telemetry service unit instance #4.
+1788200127.5,INFO,kernel,bcm2835-wdt: hardware watchdog keepalive ping sequence=85
+1788200129.0,INFO,wpa_supplicant,wlan0: WPA: Key negotiation completed with AP BSSID b8:27:eb:60:aa:bb
+1788200130.5,NOTICE,dhcpcd,wlan0: renewing lease of 192.168.1.137
+1788200132.0,NOTICE,telemetry-agent,Window #088 compression cycle complete. Codec verified and ACK returned.
+1788200133.5,NOTICE,sshd,Accepted publickey for pi from 192.168.1.50 port 50089 ssh2
+1788200135.0,WARNING,systemd,Started telemetry service unit instance #0.
+1788200136.5,WARNING,kernel,bcm2835-wdt: hardware watchdog keepalive ping sequence=91
+1788200138.0,WARNING,wpa_supplicant,wlan0: WPA: Key negotiation completed with AP BSSID b8:27:eb:0c:aa:bb
+1788200139.5,DEBUG,dhcpcd,wlan0: renewing lease of 192.168.1.143
+1788200141.0,DEBUG,telemetry-agent,Window #094 compression cycle complete. Codec verified and ACK returned.
+1788200142.5,DEBUG,sshd,Accepted publickey for pi from 192.168.1.50 port 50095 ssh2
+1788200144.0,INFO,systemd,Started telemetry service unit instance #6.
+1788200145.5,INFO,kernel,bcm2835-wdt: hardware watchdog keepalive ping sequence=97
+1788200147.0,INFO,wpa_supplicant,wlan0: WPA: Key negotiation completed with AP BSSID b8:27:eb:12:aa:bb
+1788200148.5,NOTICE,dhcpcd,wlan0: renewing lease of 192.168.1.149

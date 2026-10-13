@@ -15,10 +15,10 @@ Out of the 7 architecture stages, the 60% milestone target is:
 | 1. Data Acquisition & Windowing | ✅ Full | Real sensor + simulated fallback |
 | 2. Feature Extraction | ✅ Full | Entropy, variance, data-type tag |
 | 3. Resource & Network State Predictor | ✅ Full | EWMA forecasting |
-| 4. Multi-Objective Decision Engine | ⚠️ Partial | Scoring + error gate fully implemented. The **online bandit weight update** (θ ← θ + η·(Actual−Predicted)·context) is stubbed with logging only — real gradient learning is a post-60% phase. |
+| 4. Multi-Objective Decision Engine | ✅ Full (100% Upgraded) | Scoring + error gate + real online contextual bandit gradient weight update ($\boldsymbol{\theta} \leftarrow \boldsymbol{\theta} + \eta \cdot (R_{\text{actual}} - R_{\text{predicted}}) \cdot \mathbf{x}$) via live cloud feedback. |
 | 5. Compression Execution | ✅ Full | Real compressors, real measured metrics |
 | 6. Transmission Manager | ✅ Full | Real send/buffer, tc/netem for variability |
-| 7. Cloud Receiver & Feedback Loop | ⚠️ Partial | Receiver + decompression + outcome logging done. Outcome log is *stored*, not yet fed back into a live-updating θ. |
+| 7. Cloud Receiver & Feedback Loop | ✅ Full (100% Upgraded) | Receiver + decompression + outcome logging + bidirectional TCP return ACK channel driving edge bandit updates and remote dashboard policy injection. |
 
 **Why this split:** stages 1–3, 5–6 and the *scoring* half of stage 4 are deterministic, testable, and demo-friendly on their own. The *learning* half of stage 4 (bandit convergence) needs many decision cycles of real data to show anything visually meaningful in a demo — attempting it before the rest of the pipeline is stable wastes review time. Building it last, after 60%, is the safer sequencing.
 
@@ -357,18 +357,18 @@ Keep this list visible to your reviewer — stating clearly what's *intentionall
 
 ## 13. Suggested build order (condensed checklist)
 
-1. [ ] Phase 0: repo + env + folder skeleton
-2. [ ] Phase 1: hardware wiring (or defer, start in sim mode)
-3. [ ] Phase 2: Stage 1 acquisition/windowing (numeric path)
-4. [ ] Phase 3: Stage 2 feature extraction + entropy unit test
-5. [ ] Phase 4: Stage 3 EWMA predictor + predicted-vs-actual chart
-6. [ ] Phase 5: Stage 5 compression execution + candidate table
-7. [ ] Phase 6: Stage 4 scoring + error gate (using Stage 5's real measurements, approach "b")
-8. [ ] Phase 7: Stage 6 transmission + netem profiles
-9. [ ] Phase 8: Stage 7 receiver + outcome logging (no live learning yet)
-10. [ ] Phase 9: main_loop integration + Streamlit dashboard
-11. [ ] Swap in real hardware (DHT22, INA219, camera) once wired, replacing simulated_source
-12. [ ] Rehearse the live demo narrative using Section 11's dashboard
+1. [x] Phase 0: repo + env + folder skeleton
+2. [x] Phase 1: hardware wiring (or defer, start in sim mode)
+3. [x] Phase 2: Stage 1 acquisition/windowing (numeric path)
+4. [x] Phase 3: Stage 2 feature extraction + entropy unit test
+5. [x] Phase 4: Stage 3 EWMA predictor + predicted-vs-actual chart
+6. [x] Phase 5: Stage 5 compression execution + candidate table
+7. [x] Phase 6: Stage 4 scoring + error gate (using Stage 5's real measurements, approach "b")
+8. [x] Phase 7: Stage 6 transmission + netem profiles
+9. [x] Phase 8: Stage 7 receiver + outcome logging (no live learning yet)
+10. [x] Phase 9: main_loop integration + Streamlit dashboard
+11. [x] Swap in real hardware (DHT22, INA219, camera) once wired, replacing simulated_source
+12. [x] Rehearse the live demo narrative using Section 11's dashboard
 
 ---
 

@@ -12,10 +12,10 @@
 | **1. Data Acquisition & Windowing** | ✅ Full | Live hardware ingestion via `RPiTelemetryHub` (DHT22 on GPIO4, CSI Camera via Picamera2, and BCM2837 SoC metrics via `vcgencmd`/`psutil`). |
 | **2. Feature Extraction** | ✅ Full | Pure-Python zero-dependency Shannon Entropy ($H$), Variance ($\sigma^2$), Rate of Change ($\text{RoC}$), and window summary bounds. |
 | **3. State & Resource Predictor** | ✅ Full | EWMA forecasting for next-window SoC thermal state, CPU load, and network bandwidth. |
-| **4. Multi-Objective Decision Engine** | ⚠️ Partial | Utility scoring ($w_1 \cdot \text{Ratio} - w_2 \cdot \text{Energy} - w_3 \cdot \text{Latency} - w_4 \cdot \text{Error}$) with hard error constraints ($\epsilon$). Online contextual bandit weights are logged to `logs/decisions.csv` for post-60% learning. |
+| **4. Multi-Objective Decision Engine** | ✅ Full (100% Upgraded) | Utility scoring ($w_1 \cdot \text{Ratio} - w_2 \cdot \text{Energy} - w_3 \cdot \text{Latency} - w_4 \cdot \text{Error}$) with hard error constraints ($\epsilon$) + online contextual bandit gradient weight learning ($\boldsymbol{\theta} \leftarrow \boldsymbol{\theta} + \eta \cdot (R_{\text{actual}} - R_{\text{predicted}}) \cdot \mathbf{x}$) updating decision policy from cloud feedback. |
 | **5. Compression Execution** | ✅ Full | Real codecs (LZ4, Zstandard, Bzip2, Snappy, Delta) with real measured execution timing, size ratios, and CPU/energy consumption. |
 | **6. Transmission Manager** | ✅ Full | Socket/HTTP transmission with dynamic threshold deferral and network bandwidth emulation via Linux `tc`/`netem`. |
-| **7. Cloud Receiver & Outcome Store** | ⚠️ Partial | Decompression verification, outcome vector logging (`logs/outcomes.csv`), and live dashboard streaming. |
+| **7. Cloud Receiver & Outcome Store** | ✅ Full (100% Upgraded) | Decompression verification, ground-truth error verification ($\epsilon = 0.000000$), ACID database dual-persistence (`logs/outcomes.db` + CSV), and bidirectional TCP feedback ACK driving edge learning and dashboard policy injection. |
 
 ---
 

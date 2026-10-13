@@ -326,7 +326,9 @@ class RadioTransmissionStage:
             "compressor": compressor,
             "compression_level": compressed_result.get("compression_level", 1),
             "raw_size_bytes": raw_size,
+            "raw_size": raw_size,
             "compressed_size_bytes": comp_size,
+            "comp_size": comp_size,
             "compression_ratio": compressed_result.get("compression_ratio", 1.0),
             "execution_time_ms": compressed_result.get("execution_time_ms", 0.0),
             "cpu_energy_proxy_uj": compressed_result.get("cpu_energy_proxy_uj", 0.0),
@@ -486,5 +488,7 @@ if __name__ == "__main__":
     print(f"Transmit Result: Status={res_tx['status']}, Radio={res_tx['radio_state']}, Wake Time={res_tx['radio_wake_time_ms']}ms")
 
     # Test 2: Deferral Send (Low-Power Radio Sleep)
+    res_defer = stage7.transmit(fake_comp, decision={"transmit_or_defer": "defer", "radio_sleep_duration_s": 2.5})
+    print(f"Defer Result: Status={res_defer['status']}, Radio={res_defer['radio_state']}, Energy Saved={res_defer['radio_energy_saved_uj']}uJ, Queue Depth={res_defer['queue_depth']}")
     res_defer = stage7.transmit(fake_comp, decision={"transmit_or_defer": "defer", "radio_sleep_duration_s": 2.5})
     print(f"Defer Result: Status={res_defer['status']}, Radio={res_defer['radio_state']}, Energy Saved={res_defer['radio_energy_saved_uj']}uJ, Queue Depth={res_defer['queue_depth']}")
