@@ -191,10 +191,46 @@ class FeatureExtractionStage:
             window_id = 0
             timestamp = 0.0
 
+        sample_count = len(raw_data) if isinstance(raw_data, list) else 1
+        criticality = getattr(window, "criticality", "routine") if hasattr(window, "criticality") else (window.get("criticality", "routine") if isinstance(window, dict) else "routine")
+
+        if data_type == "image":
+            img_metrics = self.compute_image_features(raw_data)
+            return {
+                "window_id": window_id,
+                "timestamp": timestamp,
+                "data_type": "image",
+                "criticality": criticality,
+                "sample_count": sample_count,
+                "entropy": img_metrics["entropy"],
+                "variance": img_metrics["variance"],
+                "rate_of_change": img_metrics["spatial_gradient_variance"],
+                "spatial_gradient_variance": img_metrics["spatial_gradient_variance"],
+                "mean_val": img_metrics["mean_intensity"],
+                "min_val": 0.0,
+                "max_val": 255.0
+            }
+
+        if data_type == "text":
+            txt_metrics = self.compute_text_features(raw_data)
+            return {
+                "window_id": window_id,
+                "timestamp": timestamp,
+                "data_type": "text",
+                "criticality": criticality,
+                "sample_count": sample_count,
+                "entropy": txt_metrics["entropy"],
+                "variance": txt_metrics["variance"],
+                "rate_of_change": txt_metrics["repetition_index"],
+                "repetition_index": txt_metrics["repetition_index"],
+                "ascii_ratio": txt_metrics["ascii_ratio"],
+                "min_val": 0.0,
+                "max_val": 255.0,
+                "mean_val": 128.0
+            }
+
         series = self._extract_numeric_series(raw_data, feature_key=feature_key)
         sample_count = len(raw_data) if isinstance(raw_data, list) else len(series)
-
-        criticality = getattr(window, "criticality", "routine") if hasattr(window, "criticality") else (window.get("criticality", "routine") if isinstance(window, dict) else "routine")
 
         if len(series) == 0:
             return {
@@ -227,6 +263,88 @@ class FeatureExtractionStage:
             "min_val": float(round(min(series), 4)),
             "max_val": float(round(max(series), 4)),
             "mean_val": float(round(sum(series) / sample_count, 4))
+        }
+
+    def compute_image_features(self, image_data: Any) -> Dict[str, float]:
+        """
+        Computes 2D spatial intensity entropy and spatial gradient variance on image bytes.
+        """
+        raw_bytes = b""
+        if isinstance(image_data, (bytes, bytearray)):
+            raw_bytes = bytes(image_data)
+        elif isinstance(image_data, dict):
+            raw_bytes = image_data.get("image_bytes", b"")
+        elif isinstance(image_data, list) and image_data:
+            first = image_data[0]
+            if isinstance(first, dict):
+                raw_bytes = first.get("image_bytes", b"")
+            elif isinstance(first, (bytes, bytearray)):
+                raw_bytes = bytes(first)
+
+        if not raw_bytes:
+            return {"entropy": 0.0, "variance": 0.0, "spatial_gradient_variance": 0.0, "mean_intensity": 0.0}
+
+        sample_step = max(1, len(raw_bytes) // 4096)
+        pixel_vals = [float(b) for b in raw_bytes[::sample_step]]
+        n = len(pixel_vals)
+
+        entropy = self.compute_shannon_entropy(pixel_vals, num_bins=256)
+        variance = self.compute_variance(pixel_vals)
+        grad_diffs = [abs(pixel_vals[i] - pixel_vals[i - 1]) for i in range(1, n)]
+        grad_var = self.compute_variance(grad_diffs) if grad_diffs else 0.0
+        mean_intensity = sum(pixel_vals) / n if n > 0 else 0.0
+
+        return {
+            "entropy": entropy,
+            "variance": variance,
+            "spatial_gradient_variance": grad_var,
+            "mean_intensity": round(mean_intensity, 2)
+        }
+
+    def compute_text_features(self, text_data: Any) -> Dict[str, float]:
+        """
+        Computes byte-level entropy, 4-gram lexical repetition index,
+        and printable ASCII ratio on text / log streams.
+        """
+        raw_str = ""
+        if isinstance(text_data, str):
+            raw_str = text_data
+        elif isinstance(text_data, (bytes, bytearray)):
+            raw_str = text_data.decode("utf-8", errors="ignore")
+        elif isinstance(text_data, list):
+            parts = []
+            for item in text_data:
+                if isinstance(item, dict):
+                    parts.append(item.get("raw_text", str(item)))
+                else:
+                    parts.append(str(item))
+            raw_str = "".join(parts)
+        elif isinstance(text_data, dict):
+            raw_str = text_data.get("raw_text", str(text_data))
+
+        if not raw_str:
+            return {"entropy": 0.0, "variance": 0.0, "repetition_index": 0.0, "ascii_ratio": 1.0}
+
+        raw_bytes = raw_str.encode("utf-8")
+        byte_vals = [float(b) for b in raw_bytes]
+        entropy = self.compute_shannon_entropy(byte_vals, num_bins=256)
+        variance = self.compute_variance(byte_vals)
+
+        total_4grams = max(1, len(raw_str) - 3)
+        if len(raw_str) >= 4:
+            unique_4grams = len(set(raw_str[i:i+4] for i in range(total_4grams)))
+            repetition_index = round(1.0 - (unique_4grams / total_4grams), 4)
+        else:
+            repetition_index = 0.0
+
+        printable_count = sum(1 for c in raw_str if 32 <= ord(c) <= 126 or c in ('\n', '\r', '\t'))
+        ascii_ratio = round(printable_count / max(1, len(raw_str)), 4)
+
+        return {
+            "entropy": entropy,
+            "variance": variance,
+            "repetition_index": repetition_index,
+            "ascii_ratio": ascii_ratio
         }
 
 

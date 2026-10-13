@@ -95,10 +95,38 @@ class AcquisitionStage:
     ):
         self.source = source if source is not None else RPiTelemetryHub()
         self.window_size = window_size
+        self.base_window_size = window_size
         self.max_wait_time = max_wait_time
         self.data_type = data_type
         self.criticality = criticality
         self.window_counter = 0
+
+    def adjust_window_size(
+        self,
+        rate_of_change: float,
+        entropy: float,
+        min_n: int = 2,
+        max_multiplier: float = 2.0
+    ) -> int:
+        """
+        Dynamically adapts window size N based on signal volatility & information density:
+          - Steady signal (low RoC, low entropy): expands window (up to max_multiplier * base)
+            to maximize dictionary and run-length compression ratio.
+          - Volatile signal (high RoC or entropy spike): contracts window (down to min_n)
+            to preserve prompt decision responsiveness and anomaly isolation.
+        """
+        base_n = self.base_window_size
+        max_n = max(base_n, int(base_n * max_multiplier))
+
+        if rate_of_change < 0.05 and entropy < 1.0:
+            new_n = min(max_n, int(base_n * 1.5))
+        elif rate_of_change > 0.8 or entropy > 3.0:
+            new_n = max(min_n, base_n // 2)
+        else:
+            new_n = base_n
+
+        self.window_size = new_n
+        return self.window_size
 
     def read_sample(self, source_override: Optional[Any] = None) -> Any:
         """

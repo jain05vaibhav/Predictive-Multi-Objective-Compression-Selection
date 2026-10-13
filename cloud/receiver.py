@@ -13,7 +13,8 @@ import json
 import socket
 import threading
 import time
-from typing import Dict, Any, Optional
+from concurrent.futures import ThreadPoolExecutor
+from typing import Dict, Any, Optional, Tuple, List
 
 from edge.stage5_compression import CompressionStage
 from cloud.outcome_store import OutcomeStore
@@ -22,18 +23,22 @@ from cloud.outcome_store import OutcomeStore
 class CloudReceiver:
     """
     Stage 7 Cloud Receiver & Integrity Ingestion Server.
+    Includes worker-pooled decompression pipeline (Phase 16).
     """
 
     def __init__(
         self,
         host: str = "0.0.0.0",
         port: int = 8765,
-        log_file: str = "logs/outcomes.csv"
+        log_file: str = "logs/outcomes.csv",
+        max_workers: int = 4
     ):
         self.host = host
         self.port = int(port)
         self.compression_engine = CompressionStage()
         self.outcome_store = OutcomeStore(log_file=log_file)
+        self.max_workers = int(max_workers)
+        self.worker_pool: Optional[ThreadPoolExecutor] = None
 
         self.server_socket: Optional[socket.socket] = None
         self.is_running = False
@@ -175,12 +180,13 @@ class CloudReceiver:
         }
 
     def start_socket_server(self, blocking: bool = False):
-        """Starts live TCP socket listener for edge connections."""
+        """Starts live TCP socket listener with worker pool for edge connections."""
         self.is_running = True
+        self.worker_pool = ThreadPoolExecutor(max_workers=self.max_workers)
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.server_socket.bind((self.host, self.port))
-        self.server_socket.listen(5)
+        self.server_socket.listen(10)
         self.server_socket.settimeout(0.5)
 
         if blocking:
@@ -189,89 +195,104 @@ class CloudReceiver:
             self.server_thread = threading.Thread(target=self._server_loop, daemon=True)
             self.server_thread.start()
 
+    def _handle_client_connection(self, conn: socket.socket, addr: Tuple[str, int]) -> None:
+        """Worker thread handler: parses frame, decompresses payload, and responds with ACK feedback."""
+        with conn:
+            try:
+                # Read 4-byte length
+                raw_len = conn.recv(4)
+                if not raw_len or len(raw_len) < 4:
+                    return
+                pkt_len = int.from_bytes(raw_len, "big")
+                data = bytearray()
+                while len(data) < pkt_len:
+                    chunk = conn.recv(min(4096, pkt_len - len(data)))
+                    if not chunk:
+                        break
+                    data.extend(chunk)
+
+                # Process packet
+                header_len = int.from_bytes(data[:4], "big")
+                header_json = json.loads(data[4:4 + header_len].decode("utf-8"))
+                payload_blob = bytes(data[4 + header_len:])
+
+                packet_dict = {
+                    "window_id": header_json.get("window_id", 0),
+                    "timestamp": header_json.get("timestamp", time.time()),
+                    "compressor": header_json.get("compressor", "lz4"),
+                    "compression_level": header_json.get("compression_level", 1),
+                    "raw_size_bytes": header_json.get("raw_size", len(payload_blob)),
+                    "compressed_size_bytes": header_json.get("comp_size", len(payload_blob)),
+                    "execution_time_ms": header_json.get("execution_time_ms", 0.0),
+                    "cpu_energy_proxy_uj": header_json.get("cpu_energy_proxy_uj", 0.0),
+                    "payload_bytes": payload_blob,
+                    "entropy": header_json.get("entropy", 0.0),
+                    "variance": header_json.get("variance", 0.0),
+                    "predicted_cpu_temp": header_json.get("predicted_cpu_temp", 0.0),
+                    "predicted_cpu_load": header_json.get("predicted_cpu_load", 0.0),
+                    "predicted_bw_kbps": header_json.get("predicted_bw_kbps", 1000.0),
+                    "throttling_risk": header_json.get("throttling_risk", False),
+                    "composite_score": header_json.get("composite_score", 0.0),
+                    "w1_ratio": header_json.get("w1_ratio", 0.4),
+                    "w2_energy": header_json.get("w2_energy", 0.3),
+                    "w3_latency": header_json.get("w3_latency", 0.2),
+                    "w4_error": header_json.get("w4_error", 0.1)
+                }
+                proc_res = self.receive_and_process_payload(packet_dict)
+
+                # Send ACK, Outcome Log (Objective O3, O4 closed loop) and Overrides to Raspberry Pi
+                control_dict = {
+                    "status": "ACK",
+                    "outcome_log": {
+                        "window_id": proc_res.get("window_id", packet_dict["window_id"]),
+                        "compressor": proc_res.get("compressor", packet_dict["compressor"]),
+                        "ratio": round(packet_dict["raw_size_bytes"] / max(1, packet_dict["compressed_size_bytes"]), 4),
+                        "latency_ms": packet_dict["execution_time_ms"],
+                        "energy_uj": packet_dict["cpu_energy_proxy_uj"],
+                        "error": proc_res.get("reconstruction_error", 0.0),
+                        "status": proc_res.get("status", "verified")
+                    },
+                    "overrides": {}
+                }
+                override_file = "logs/edge_overrides.json"
+                if os.path.exists(override_file):
+                    try:
+                        with open(override_file, "r", encoding="utf-8") as f_ov:
+                            control_dict["overrides"] = json.load(f_ov)
+                    except Exception:
+                        pass
+                resp_bytes = json.dumps(control_dict).encode("utf-8")
+                conn.sendall(resp_bytes)
+            except Exception:
+                pass
+
     def _server_loop(self):
-        """Internal server accept loop."""
-        print(f"=== Cloud Ingestion Server listening on {self.host}:{self.port} ===")
+        """Internal server accept loop delegating work to worker pool."""
+        print(f"=== Cloud Ingestion Server listening on {self.host}:{self.port} (Workers: {self.max_workers}) ===")
         print("Waiting for edge telemetry stream from Raspberry Pi... (Press Ctrl+C to stop)")
         while self.is_running:
             try:
                 conn, addr = self.server_socket.accept()
-                with conn:
-                    # Read 4-byte length
-                    raw_len = conn.recv(4)
-                    if not raw_len or len(raw_len) < 4:
-                        continue
-                    pkt_len = int.from_bytes(raw_len, "big")
-                    data = bytearray()
-                    while len(data) < pkt_len:
-                        chunk = conn.recv(min(4096, pkt_len - len(data)))
-                        if not chunk:
-                            break
-                        data.extend(chunk)
-
-                    # Process packet
-                    header_len = int.from_bytes(data[:4], "big")
-                    header_json = json.loads(data[4:4 + header_len].decode("utf-8"))
-                    payload_blob = bytes(data[4 + header_len:])
-
-                    packet_dict = {
-                        "window_id": header_json.get("window_id", 0),
-                        "timestamp": header_json.get("timestamp", time.time()),
-                        "compressor": header_json.get("compressor", "lz4"),
-                        "compression_level": header_json.get("compression_level", 1),
-                        "raw_size_bytes": header_json.get("raw_size", len(payload_blob)),
-                        "compressed_size_bytes": header_json.get("comp_size", len(payload_blob)),
-                        "execution_time_ms": header_json.get("execution_time_ms", 0.0),
-                        "cpu_energy_proxy_uj": header_json.get("cpu_energy_proxy_uj", 0.0),
-                        "payload_bytes": payload_blob,
-                        "entropy": header_json.get("entropy", 0.0),
-                        "variance": header_json.get("variance", 0.0),
-                        "predicted_cpu_temp": header_json.get("predicted_cpu_temp", 0.0),
-                        "predicted_cpu_load": header_json.get("predicted_cpu_load", 0.0),
-                        "predicted_bw_kbps": header_json.get("predicted_bw_kbps", 1000.0),
-                        "throttling_risk": header_json.get("throttling_risk", False),
-                        "composite_score": header_json.get("composite_score", 0.0),
-                        "w1_ratio": header_json.get("w1_ratio", 0.4),
-                        "w2_energy": header_json.get("w2_energy", 0.3),
-                        "w3_latency": header_json.get("w3_latency", 0.2),
-                        "w4_error": header_json.get("w4_error", 0.1)
-                    }
-                    proc_res = self.receive_and_process_payload(packet_dict)
-
-                    # Send ACK, Outcome Log (Objective O3, O4 closed loop) and Overrides to Raspberry Pi
-                    control_dict = {
-                        "status": "ACK",
-                        "outcome_log": {
-                            "window_id": proc_res.get("window_id", packet_dict["window_id"]),
-                            "compressor": proc_res.get("compressor", packet_dict["compressor"]),
-                            "ratio": round(packet_dict["raw_size_bytes"] / max(1, packet_dict["compressed_size_bytes"]), 4),
-                            "latency_ms": packet_dict["execution_time_ms"],
-                            "energy_uj": packet_dict["cpu_energy_proxy_uj"],
-                            "error": proc_res.get("reconstruction_error", 0.0),
-                            "status": proc_res.get("status", "verified")
-                        },
-                        "overrides": {}
-                    }
-                    override_file = "logs/edge_overrides.json"
-                    if os.path.exists(override_file):
-                        try:
-                            with open(override_file, "r", encoding="utf-8") as f_ov:
-                                control_dict["overrides"] = json.load(f_ov)
-                        except Exception:
-                            pass
-                    resp_bytes = json.dumps(control_dict).encode("utf-8")
-                    conn.sendall(resp_bytes)
+                if self.worker_pool:
+                    self.worker_pool.submit(self._handle_client_connection, conn, addr)
+                else:
+                    self._handle_client_connection(conn, addr)
             except socket.timeout:
                 continue
             except Exception:
                 break
 
     def stop_server(self):
-        """Stops the socket server gracefully."""
+        """Stops the socket server gracefully and shuts down worker pool."""
         self.is_running = False
         if self.server_socket:
             try:
                 self.server_socket.close()
+            except Exception:
+                pass
+        if self.worker_pool:
+            try:
+                self.worker_pool.shutdown(wait=False)
             except Exception:
                 pass
         if self.server_thread:

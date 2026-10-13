@@ -15,15 +15,58 @@ import os
 import json
 import socket
 import time
+import zlib
 from collections import deque
 from typing import Dict, Any, Optional, List, Tuple
 
+try:
+    import zstandard as zstd
+    HAS_ZSTD = True
+except ImportError:
+    HAS_ZSTD = False
+
 from edge.config import RADIO_BASE_SLEEP_S, RADIO_DEFERRED_SLEEP_S
+
+
+class PriorityQueueWrapper:
+    """Backward compatibility wrapper allowing deque-like access to 3-tier priority backlog."""
+
+    def __init__(self, stage: "RadioTransmissionStage"):
+        self.stage = stage
+
+    def append(self, item: Dict[str, Any]) -> None:
+        self.stage.enqueue_priority(item)
+
+    def appendleft(self, item: Dict[str, Any]) -> None:
+        tier = self.stage._resolve_tier(item)
+        self.stage.reinsert_front(tier, item)
+
+    def popleft(self) -> Dict[str, Any]:
+        res = self.stage.pop_highest_priority()
+        if res is None:
+            raise IndexError("pop from an empty priority queue")
+        return res[1]
+
+    def __len__(self) -> int:
+        return self.stage.get_queue_depth()
+
+    def __bool__(self) -> bool:
+        return self.stage.get_queue_depth() > 0
+
+    def __iter__(self):
+        for t in (0, 1, 2):
+            for item in self.stage.priority_queues[t]:
+                yield item
+
+    def __getitem__(self, index):
+        items = list(self)
+        return items[index]
 
 
 class RadioTransmissionStage:
     """
     Stage 7 Radio Duty-Cycle & Transmission Co-Scheduler (Objective O5).
+    Includes QoS-Aware Multi-Tier Priority Backlog (Phase 15).
     """
 
     RADIO_STATE_ACTIVE = "ACTIVE"
@@ -34,20 +77,35 @@ class RadioTransmissionStage:
     RADIO_ACTIVE_POWER_MW = 800.0
     RADIO_SLEEP_POWER_MW = 50.0
 
+    # Priority Tiers
+    TIER_URGENT = 0   # Critical / error-intolerant
+    TIER_ROUTINE = 1  # Standard operational telemetry
+    TIER_BULK = 2     # Background / low-priority historical logs
+
     def __init__(
         self,
         host: str = "127.0.0.1",
         port: int = 8765,
         timeout_s: float = 1.0,
-        enable_network: bool = False
+        enable_network: bool = False,
+        max_buffer_bytes: int = 50 * 1024 * 1024  # 50 MB memory ceiling
     ):
         self.host = host
         self.port = int(port)
         self.timeout_s = float(timeout_s)
         self.enable_network = bool(enable_network)
+        self.max_buffer_bytes = int(max_buffer_bytes)
 
-        # FIFO backlog queue for deferred payloads
-        self.deferral_queue: deque = deque()
+        # 3-Tier Priority Queues
+        self.priority_queues: Dict[int, deque] = {
+            self.TIER_URGENT: deque(),
+            self.TIER_ROUTINE: deque(),
+            self.TIER_BULK: deque()
+        }
+        self.total_evicted_packets = 0
+
+        # Backward compatibility wrapper
+        self.deferral_queue = PriorityQueueWrapper(self)
         self.total_transmitted_bytes = 0
         self.total_packets_sent = 0
 
@@ -61,9 +119,145 @@ class RadioTransmissionStage:
         self.latest_cloud_control: Dict[str, Any] = {}
         self.latest_outcome_log: Optional[Dict[str, Any]] = None
 
-    def get_queue_depth(self) -> int:
-        """Returns the number of deferred packets currently waiting in the backlog."""
-        return len(self.deferral_queue)
+    def _resolve_tier(self, packet_record: Dict[str, Any]) -> int:
+        """Determines the appropriate priority tier (0, 1, or 2) for a packet."""
+        if "priority_tier" in packet_record and packet_record["priority_tier"] in (0, 1, 2):
+            return int(packet_record["priority_tier"])
+
+        crit = str(packet_record.get("criticality", "")).lower()
+        if crit in ("critical", "urgent", "anomaly"):
+            return self.TIER_URGENT
+        elif crit in ("bulk", "low", "archive"):
+            return self.TIER_BULK
+        return self.TIER_ROUTINE
+
+    def get_queue_depth(self, tier: Optional[int] = None) -> int:
+        """Returns the number of deferred packets waiting in backlog (all tiers or specific tier)."""
+        if tier is not None:
+            return len(self.priority_queues.get(tier, []))
+        return sum(len(q) for q in self.priority_queues.values())
+
+    def get_queue_memory_bytes(self) -> int:
+        """Calculates total memory footprint of queued packets across all tiers."""
+        total = 0
+        for q in self.priority_queues.values():
+            for item in q:
+                total += len(item.get("payload_bytes", b""))
+        return total
+
+    def enqueue_priority(self, packet_record: Dict[str, Any], tier: Optional[int] = None) -> int:
+        """
+        Enqueues a payload into its corresponding priority tier and enforces memory ceiling.
+        Tier 2 (Bulk) is evicted first, then Tier 1 (Routine). Tier 0 (Urgent) is preserved.
+        """
+        assigned_tier = tier if tier is not None else self._resolve_tier(packet_record)
+        packet_record["priority_tier"] = assigned_tier
+
+        # Enforce memory ceiling
+        packet_size = len(packet_record.get("payload_bytes", b""))
+        while self.get_queue_memory_bytes() + packet_size > self.max_buffer_bytes:
+            # Evict from Tier 2 first
+            if len(self.priority_queues[self.TIER_BULK]) > 0:
+                self.priority_queues[self.TIER_BULK].popleft()
+                self.total_evicted_packets += 1
+            # Evict from Tier 1 if Tier 2 empty
+            elif len(self.priority_queues[self.TIER_ROUTINE]) > 0:
+                self.priority_queues[self.TIER_ROUTINE].popleft()
+                self.total_evicted_packets += 1
+            else:
+                break
+
+        self.priority_queues[assigned_tier].append(packet_record)
+        return assigned_tier
+
+    def pop_highest_priority(self) -> Optional[Tuple[int, Dict[str, Any]]]:
+        """Pops the highest priority packet available (Tier 0 -> Tier 1 -> Tier 2)."""
+        for t in (self.TIER_URGENT, self.TIER_ROUTINE, self.TIER_BULK):
+            if len(self.priority_queues[t]) > 0:
+                return t, self.priority_queues[t].popleft()
+        return None
+
+    def reinsert_front(self, tier: int, item: Dict[str, Any]) -> None:
+        """Re-inserts a packet at the head of its priority tier upon transient network failure."""
+        if tier in self.priority_queues:
+            self.priority_queues[tier].appendleft(item)
+        else:
+            self.priority_queues[self.TIER_ROUTINE].appendleft(item)
+
+    def coalesce_backlog(self, min_windows: int = 5) -> Dict[str, Any]:
+        """
+        Re-compresses consecutive Routine (Tier 1) windows during sustained network outages
+        into a single consolidated high-ratio archive, reclaiming memory and queue depth.
+        """
+        routine_q = self.priority_queues[self.TIER_ROUTINE]
+        if len(routine_q) < min_windows:
+            return {"coalesced": False, "coalesced_count": 0, "bytes_saved": 0}
+
+        # Drain items to coalesce
+        items_to_merge = []
+        original_bytes = 0
+        original_raw = 0
+        window_ids = []
+
+        while routine_q:
+            item = routine_q.popleft()
+            items_to_merge.append(item)
+            original_bytes += len(item.get("payload_bytes", b""))
+            original_raw += item.get("raw_size_bytes", 0)
+            window_ids.append(item.get("window_id", 0))
+
+        # Bundle and recompress with high-ratio algorithm
+        bundle_stream = bytearray()
+        for it in items_to_merge:
+            payload = it.get("payload_bytes", b"")
+            bundle_stream.extend(len(payload).to_bytes(4, byteorder="big"))
+            bundle_stream.extend(payload)
+
+        raw_bundle = bytes(bundle_stream)
+        if HAS_ZSTD:
+            try:
+                cctx = zstd.ZstdCompressor(level=15)
+                recompressed_payload = cctx.compress(raw_bundle)
+                codec_used = "zstd-15-coalesced"
+            except Exception:
+                recompressed_payload = zlib.compress(raw_bundle, level=9)
+                codec_used = "zlib-9-coalesced"
+        else:
+            recompressed_payload = zlib.compress(raw_bundle, level=9)
+            codec_used = "zlib-9-coalesced"
+
+        # Form single archival coalesced packet
+        last_item = items_to_merge[-1]
+        coalesced_packet = {
+            "window_id": last_item.get("window_id", 0),
+            "coalesced_window_ids": window_ids,
+            "is_coalesced": True,
+            "coalesced_count": len(items_to_merge),
+            "timestamp": last_item.get("timestamp", time.time()),
+            "compressor": codec_used,
+            "compression_level": 15 if "zstd" in codec_used else 9,
+            "raw_size_bytes": original_raw,
+            "compressed_size_bytes": len(recompressed_payload),
+            "compression_ratio": round(original_raw / max(1, len(recompressed_payload)), 4),
+            "execution_time_ms": 1.0,
+            "cpu_energy_proxy_uj": 500.0,
+            "priority_tier": self.TIER_ROUTINE,
+            "criticality": "routine",
+            "payload_bytes": recompressed_payload
+        }
+
+        # Put back into Tier 1
+        routine_q.appendleft(coalesced_packet)
+        bytes_saved = max(0, original_bytes - len(recompressed_payload))
+
+        return {
+            "coalesced": True,
+            "coalesced_count": len(items_to_merge),
+            "original_bytes": original_bytes,
+            "coalesced_bytes": len(recompressed_payload),
+            "bytes_saved": bytes_saved,
+            "codec_used": codec_used
+        }
 
     def _send_over_socket(self, packet_bytes: bytes) -> Tuple[bool, float, Optional[Dict[str, Any]]]:
         """
@@ -144,6 +338,8 @@ class RadioTransmissionStage:
             "predicted_bw_kbps": decision.get("predicted_bw_kbps", 1000.0) if decision else 1000.0,
             "throttling_risk": decision.get("throttling_risk", False) if decision else False,
             "composite_score": decision.get("composite_score", 0.0) if decision else 0.0,
+            "priority_tier": compressed_result.get("priority_tier", decision.get("priority_tier") if decision else None),
+            "criticality": compressed_result.get("criticality", decision.get("criticality", "routine") if decision else "routine"),
             "payload_bytes": comp_bytes
         }
 
@@ -151,7 +347,7 @@ class RadioTransmissionStage:
         # Case A: Transmission Deferral (Objective O5: Extended Radio Sleep)
         # ---------------------------------------------------------------------
         if action == "defer" or force_offline:
-            self.deferral_queue.append(packet_record)
+            self.enqueue_priority(packet_record)
             self.radio_state = self.RADIO_STATE_SLEEP
             self.total_sleep_time_s += sleep_duration_s
 
@@ -168,7 +364,7 @@ class RadioTransmissionStage:
                 "radio_sleep_duration_s": sleep_duration_s,
                 "radio_wake_time_ms": 0.0,
                 "radio_energy_saved_uj": round(radio_energy_saved_uj, 2),
-                "queue_depth": len(self.deferral_queue),
+                "queue_depth": self.get_queue_depth(),
                 "bytes_transmitted": 0,
                 "transfer_time_ms": 0.0,
                 "feedback_outcome": None
@@ -196,8 +392,8 @@ class RadioTransmissionStage:
         self.total_wake_time_ms += t_wake_ms
 
         if not success:
-            # Network failure -> buffer into deferral queue
-            self.deferral_queue.append(packet_record)
+            # Network failure -> buffer into priority queue
+            self.enqueue_priority(packet_record)
             self.radio_state = self.RADIO_STATE_SLEEP
             return {
                 "status": "deferred_to_queue",
@@ -207,7 +403,7 @@ class RadioTransmissionStage:
                 "radio_sleep_duration_s": RADIO_DEFERRED_SLEEP_S,
                 "radio_wake_time_ms": round(t_wake_ms, 3),
                 "radio_energy_saved_uj": 0.0,
-                "queue_depth": len(self.deferral_queue),
+                "queue_depth": self.get_queue_depth(),
                 "bytes_transmitted": 0,
                 "transfer_time_ms": transfer_time_ms,
                 "feedback_outcome": None
@@ -218,7 +414,7 @@ class RadioTransmissionStage:
 
         # Check if backlog needs draining upon link active
         drained_count = 0
-        if len(self.deferral_queue) > 0:
+        if self.get_queue_depth() > 0:
             drained_count = self._flush_backlog_queue()
 
         # Radio duty cycle ratio
@@ -234,7 +430,7 @@ class RadioTransmissionStage:
             "radio_wake_time_ms": round(t_wake_ms, 3),
             "duty_cycle_percent": duty_cycle_pct,
             "total_radio_energy_saved_uj": round(self.total_radio_energy_saved_uj, 2),
-            "queue_depth": len(self.deferral_queue),
+            "queue_depth": self.get_queue_depth(),
             "flushed_count": drained_count,
             "drained_backlog_count": drained_count,
             "bytes_transmitted": comp_size,
@@ -243,17 +439,20 @@ class RadioTransmissionStage:
         }
 
     def _flush_backlog_queue(self) -> int:
-        """Drains queued backlog packets in FIFO order upon network recovery."""
+        """Drains queued backlog packets in priority order (Tier 0 -> Tier 1 -> Tier 2) upon network recovery."""
         drained = 0
-        while self.deferral_queue:
-            item = self.deferral_queue.popleft()
+        while True:
+            pop_res = self.pop_highest_priority()
+            if pop_res is None:
+                break
+            tier, item = pop_res
             header_dict = {k: v for k, v in item.items() if k != "payload_bytes"}
             header_bytes = json.dumps(header_dict).encode("utf-8")
             wire_packet = len(header_bytes).to_bytes(4, byteorder="big") + header_bytes + item["payload_bytes"]
             if self.enable_network:
                 ok, _, feedback = self._send_over_socket(wire_packet)
                 if not ok:
-                    self.deferral_queue.appendleft(item)
+                    self.reinsert_front(tier, item)
                     break
                 if feedback:
                     self.latest_outcome_log = feedback

@@ -14,7 +14,8 @@ EWMA Formula (reused for both tracks):
   x_hat_{t+1} = alpha * x_t + (1 - alpha) * x_hat_t
 """
 
-from typing import Dict, Any, Optional, Union, List
+from collections import deque
+from typing import Dict, Any, Optional, Union, List, Tuple
 from edge.config import (
     PREDICTOR_ALPHA,
     PREDICTOR_BETA,
@@ -27,7 +28,8 @@ from edge.config import (
 class PredictorStage:
     """
     Stage 3 Predictive Forecasting Module (Objective O1).
-    Maintains dual-track EWMA forecasting for resource availability and workload trend.
+    Maintains dual-track EWMA forecasting and rolling AR(1) autoregressive forecasting
+    for resource availability, volatility, and workload trend.
     """
 
     def __init__(
@@ -36,13 +38,15 @@ class PredictorStage:
         beta: float = PREDICTOR_BETA,
         thermal_limit_c: float = DEFAULT_THERMAL_LIMIT_C,
         warning_temp_c: float = THROTTLING_TEMP_WARNING_C,
-        default_bandwidth_kbps: float = DEFAULT_BANDWIDTH_KBPS
+        default_bandwidth_kbps: float = DEFAULT_BANDWIDTH_KBPS,
+        history_len: int = 20
     ):
         self.alpha = float(alpha)
         self.beta = float(beta)
         self.thermal_limit_c = float(thermal_limit_c)
         self.warning_temp_c = float(warning_temp_c)
         self.default_bandwidth_kbps = float(default_bandwidth_kbps)
+        self.history_len = int(history_len)
 
         self.window_count = 0
 
@@ -68,8 +72,15 @@ class PredictorStage:
         self.prev_cpu: Optional[float] = None
         self.prev_entropy: Optional[float] = None
 
+        # AR(1) Rolling History Buffers
+        self.history_cpu: deque = deque(maxlen=self.history_len)
+        self.history_temp: deque = deque(maxlen=self.history_len)
+        self.history_bw: deque = deque(maxlen=self.history_len)
+        self.history_battery: deque = deque(maxlen=self.history_len)
+        self.history_entropy: deque = deque(maxlen=self.history_len)
+
     def reset(self) -> None:
-        """Resets all internal EWMA state baselines across both tracks."""
+        """Resets all internal EWMA and AR(1) state baselines across both tracks."""
         self.window_count = 0
         self.ewma_cpu = None
         self.ewma_temp = None
@@ -88,6 +99,12 @@ class PredictorStage:
         self.prev_temp = None
         self.prev_cpu = None
         self.prev_entropy = None
+
+        self.history_cpu.clear()
+        self.history_temp.clear()
+        self.history_bw.clear()
+        self.history_battery.clear()
+        self.history_entropy.clear()
 
     def _extract_metrics(self, data: Any) -> Dict[str, Any]:
         """
@@ -294,6 +311,23 @@ class PredictorStage:
             except Exception:
                 pass
 
+        # Update AR(1) rolling history buffers
+        self.history_cpu.append(curr_cpu)
+        self.history_temp.append(curr_temp)
+        self.history_bw.append(curr_bw)
+        self.history_battery.append(curr_battery)
+        self.history_entropy.append(curr_entropy)
+
+        # Compute AR(1) rolling parameters and multi-step forecasts
+        c_t, phi_t, var_t = self.compute_ar1_params(self.history_temp)
+        c_c, phi_c, var_c = self.compute_ar1_params(self.history_cpu)
+        c_b, phi_b, var_b = self.compute_ar1_params(self.history_bw)
+
+        ar1_temp = {k: round(self.forecast_ar1(self.history_temp, steps=k), 2) for k in (1, 2, 3)}
+        ar1_cpu = {k: round(self.forecast_ar1(self.history_cpu, steps=k), 2) for k in (1, 2, 3)}
+        ar1_bw = {k: round(self.forecast_ar1(self.history_bw, steps=k), 2) for k in (1, 2, 3)}
+        ar1_battery = {k: round(self.forecast_ar1(self.history_battery, steps=k), 2) for k in (1, 2, 3)}
+
         throttling_risk = bool(
             pred_temp >= self.warning_temp_c
             or is_active_throttling
@@ -342,8 +376,84 @@ class PredictorStage:
             "trend_cpu": round(self.trend_cpu, 3),
             "trend_entropy": round(self.trend_entropy, 4),
             "workload_trend": workload_trend,
-            "window_count": self.window_count
+            "window_count": self.window_count,
+
+            # AR(1) multi-step forecasts and volatility metrics
+            "ar1_forecasts": {
+                "cpu_temp": ar1_temp,
+                "cpu_load": ar1_cpu,
+                "bandwidth_kbps": ar1_bw,
+                "battery_percent": ar1_battery
+            },
+            "volatility": {
+                "cpu_temp": round(var_t, 4),
+                "cpu_load": round(var_c, 4),
+                "bandwidth_kbps": round(var_b, 4)
+            },
+            "ar1_params": {
+                "phi_temp": round(phi_t, 4),
+                "phi_cpu": round(phi_c, 4),
+                "phi_bw": round(phi_b, 4)
+            }
         }
+
+    @staticmethod
+    def compute_ar1_params(history: Union[List[float], deque]) -> Tuple[float, float, float]:
+        """
+        Computes rolling AR(1) parameters (c, phi, variance) via least-squares autocorrelation:
+          x_t = c + phi * x_{t-1} + e_t
+        Clamps phi to [-0.95, 0.95] for stationarity.
+        """
+        vals = [float(x) for x in history]
+        n = len(vals)
+        if n < 3:
+            mean_val = float(vals[-1]) if n > 0 else 0.0
+            return (mean_val, 0.0, 0.0)
+
+        mu = sum(vals) / n
+        denom = sum((vals[i] - mu) ** 2 for i in range(n - 1))
+        if denom < 1e-9:
+            return (mu, 0.0, 0.0)
+
+        num = sum((vals[i + 1] - mu) * (vals[i] - mu) for i in range(n - 1))
+        raw_phi = num / denom
+        phi = max(-0.95, min(0.95, raw_phi))
+        c = mu * (1.0 - phi)
+        var = sum((x - mu) ** 2 for x in vals) / n
+        return (c, phi, var)
+
+    @classmethod
+    def forecast_ar1(cls, history: Union[List[float], deque], steps: int = 1) -> float:
+        """
+        Generates k-step ahead forecast:
+          x_hat_{t+k} = mu + (phi^k) * (x_t - mu)
+        """
+        vals = [float(x) for x in history]
+        if not vals:
+            return 0.0
+        c, phi, _ = cls.compute_ar1_params(vals)
+        x_t = vals[-1]
+        mu = c / max(1e-9, (1.0 - phi))
+        k = max(1, int(steps))
+        return float(mu + (phi ** k) * (x_t - mu))
+
+    def forecast_horizon(self, metric: str, steps: int = 1) -> float:
+        """Returns k-step ahead AR(1) forecast for a specific metric."""
+        hist_map = {
+            "cpu": self.history_cpu,
+            "cpu_load": self.history_cpu,
+            "temp": self.history_temp,
+            "cpu_temp": self.history_temp,
+            "bandwidth": self.history_bw,
+            "bandwidth_kbps": self.history_bw,
+            "battery": self.history_battery,
+            "battery_percent": self.history_battery,
+            "entropy": self.history_entropy
+        }
+        hist = hist_map.get(metric.lower())
+        if hist is not None and len(hist) > 0:
+            return round(self.forecast_ar1(hist, steps=steps), 2)
+        return 0.0
 
     def predict(
         self,
@@ -357,6 +467,13 @@ class PredictorStage:
         if feature_vector_or_sample is not None:
             return self.update(feature_vector_or_sample, features=features)
         return self.update(None, features=features)
+
+    # Alias for convenience
+    predict_next_state = predict
+
+
+# Backwards compatibility export
+StatePredictorStage = PredictorStage
 
 
 if __name__ == "__main__":

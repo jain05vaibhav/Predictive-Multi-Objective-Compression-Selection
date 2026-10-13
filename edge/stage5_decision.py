@@ -186,7 +186,8 @@ class HierarchicalDecisionEngine:
         self,
         features: Dict[str, Any],
         predictions: Dict[str, Any],
-        constraints: Optional[Dict[str, Any]] = None
+        constraints: Optional[Dict[str, Any]] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         Hierarchical decision loop across 3 layers:
@@ -196,7 +197,7 @@ class HierarchicalDecisionEngine:
         """
         constraints = constraints or {}
         window_id = features.get("window_id", 0)
-        criticality = features.get("criticality", "routine")
+        criticality = kwargs.get("criticality", features.get("criticality", "routine"))
 
         # Layer 1: Rule-Based Safety Gate (Objective O2)
         # Stricter for safety-critical, looser for routine
@@ -287,6 +288,9 @@ class HierarchicalDecisionEngine:
         self._log_decision(decision_result, features, predictions, adapted_weights)
 
         return decision_result
+
+    # Alias for convenience
+    select_algorithm = select_strategy
 
     def update_policy(
         self,

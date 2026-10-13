@@ -1,0 +1,62 @@
+{
+  "static_raw": {
+    "sample_count": 50,
+    "total_raw_bytes": 96483,
+    "total_compressed_bytes": 96483,
+    "bandwidth_saved_pct": 0.0,
+    "avg_compression_ratio": 1.0,
+    "avg_exec_time_ms": 0.001,
+    "avg_energy_uj": 1.12,
+    "avg_energy_per_raw_byte": 0.0007,
+    "avg_total_latency_ms": 15.328,
+    "deadline_adherence_pct": 94.0
+  },
+  "static_fast": {
+    "sample_count": 50,
+    "total_raw_bytes": 96483,
+    "total_compressed_bytes": 37869,
+    "bandwidth_saved_pct": 60.75,
+    "avg_compression_ratio": 3.498,
+    "avg_exec_time_ms": 0.01,
+    "avg_energy_uj": 19.37,
+    "avg_energy_per_raw_byte": 0.0113,
+    "avg_total_latency_ms": 5.997,
+    "deadline_adherence_pct": 100.0
+  },
+  "static_high_ratio": {
+    "sample_count": 50,
+    "total_raw_bytes": 96483,
+    "total_compressed_bytes": 23139,
+    "bandwidth_saved_pct": 76.02,
+    "avg_compression_ratio": 5.039,
+    "avg_exec_time_ms": 0.029,
+    "avg_energy_uj": 57.39,
+    "avg_energy_per_raw_byte": 0.0328,
+    "avg_total_latency_ms": 3.688,
+    "deadline_adherence_pct": 100.0
+  },
+  "static_heuristic": {
+    "sample_count": 50,
+    "total_raw_bytes": 96483,
+    "total_compressed_bytes": 37869,
+    "bandwidth_saved_pct": 60.75,
+    "avg_compression_ratio": 3.498,
+    "avg_exec_time_ms": 0.006,
+    "avg_energy_uj": 13.04,
+    "avg_energy_per_raw_byte": 0.0075,
+    "avg_total_latency_ms": 5.994,
+    "deadline_adherence_pct": 100.0
+  },
+  "adaptive_bandit": {
+    "sample_count": 50,
+    "total_raw_bytes": 96483,
+    "total_compressed_bytes": 23776,
+    "bandwidth_saved_pct": 75.36,
+    "avg_compression_ratio": 4.981,
+    "avg_exec_time_ms": 0.039,
+    "avg_energy_uj": 77.43,
+    "avg_energy_per_raw_byte": 0.0442,
+    "avg_total_latency_ms": 3.796,
+    "deadline_adherence_pct": 100.0
+  }
+}

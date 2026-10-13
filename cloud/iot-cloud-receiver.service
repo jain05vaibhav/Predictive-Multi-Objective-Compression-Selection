@@ -1,0 +1,17 @@
+[Unit]
+Description=IoT Multi-Objective Compression Cloud Ingestion Receiver
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/iot-compression
+ExecStart=/usr/bin/python3 -m cloud.receiver --host 0.0.0.0 --port 8765
+Restart=always
+RestartSec=5
+StandardOutput=append:/home/pi/iot-compression/logs/receiver_service.log
+StandardError=append:/home/pi/iot-compression/logs/receiver_service_err.log
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

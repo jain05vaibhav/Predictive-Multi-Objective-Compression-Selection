@@ -28,3 +28,4 @@ timestamp,window_id,data_type,criticality,compressor,compression_level,raw_bytes
 1791875867.824,FILE_5867,binary,routine,lz4,6,64871,19732,3.2876,2.743,329.2,0.0,0.0,0.5,verified
 1791877463.253,FILE_7463,binary,routine,lz4,6,64871,19963,3.2496,0.196,23.5,0.0,0.0,0.5,verified
 1791877565.089,FILE_7565,binary,routine,lz4,6,64871,19784,3.279,0.816,97.9,0.0,0.0,0.5,verified
+1791891594.347,99,lz4,1,0,0,3.5,0.0,0.0,0.0,0.0,verified
