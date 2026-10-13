@@ -5,7 +5,7 @@ Unit Tests for Phase 17: Benchmarking Harness & Trade-off Evaluation
 import os
 import unittest
 from benchmarks.run_benchmarks import BenchmarkHarness
-from benchmarks.plot_tradeoffs import generate_pareto_plot, generate_deadline_and_latency_plot
+from benchmarks.plot_tradeoffs import generate_pareto_plot, generate_deadline_and_latency_plot, HAS_MATPLOTLIB
 
 
 class TestBenchmarks(unittest.TestCase):
@@ -53,7 +53,8 @@ class TestBenchmarks(unittest.TestCase):
 
         pareto_path = os.path.join(self.test_dir, "pareto.png")
         generate_pareto_plot(records, pareto_path)
-        self.assertTrue(os.path.exists(pareto_path))
+        if HAS_MATPLOTLIB:
+            self.assertTrue(os.path.exists(pareto_path))
 
 
 if __name__ == "__main__":
