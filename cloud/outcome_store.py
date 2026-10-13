@@ -88,9 +88,9 @@ class OutcomeStore:
                 with open(self.log_file, "w", newline="", encoding="utf-8") as f:
                     writer = csv.writer(f)
                     writer.writerow([
-                        "timestamp", "window_id", "compressor", "compression_level",
-                        "raw_bytes", "compressed_bytes", "ratio", "latency_ms",
-                        "energy_uj", "error", "transfer_time_ms", "status"
+                        "timestamp", "window_id", "data_type", "criticality",
+                        "compressor", "compression_level", "raw_bytes", "compressed_bytes",
+                        "ratio", "latency_ms", "energy_uj", "error", "transfer_time_ms", "status"
                     ])
         except Exception:
             pass
@@ -101,6 +101,8 @@ class OutcomeStore:
         """
         now = outcome_data.get("timestamp", time.time())
         window_id = outcome_data.get("window_id", 0)
+        data_type = outcome_data.get("data_type", "image" if int(outcome_data.get("raw_bytes", 0)) > 100000 else "numeric")
+        criticality = outcome_data.get("criticality", "routine")
         compressor = outcome_data.get("compressor", "lz4")
         level = outcome_data.get("compression_level", 1)
         raw_bytes = int(outcome_data.get("raw_bytes", 0))
@@ -113,9 +115,10 @@ class OutcomeStore:
         status = str(outcome_data.get("status", "verified"))
 
         row = [
-            round(now, 3), window_id, compressor, level,
-            raw_bytes, comp_bytes, round(ratio, 4), round(latency_ms, 4),
-            round(energy_uj, 2), round(error, 6), round(transfer_time, 3), status
+            round(now, 3), window_id, data_type, criticality,
+            compressor, level, raw_bytes, comp_bytes, round(ratio, 4),
+            round(latency_ms, 4), round(energy_uj, 2), round(error, 6),
+            round(transfer_time, 3), status
         ]
 
         try:

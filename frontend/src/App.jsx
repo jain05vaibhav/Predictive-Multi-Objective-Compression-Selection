@@ -1487,7 +1487,7 @@ export default function App() {
                             </td>
                             <td>{parseFloat(row.latency_ms || 0.0).toFixed(2)} ms</td>
                             <td style={{ color: '#34d399' }}>
-                              {parseFloat(row.reconstruction_error || 0.0).toFixed(4)}
+                              {parseFloat(row.error ?? row.reconstruction_error ?? 0.0).toFixed(6)}
                             </td>
                             <td>
                               <span className="badge-status-verified">

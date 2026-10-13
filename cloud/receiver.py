@@ -130,6 +130,8 @@ class CloudReceiver:
         outcome_record = {
             "timestamp": packet_dict.get("timestamp", time.time()),
             "window_id": window_id,
+            "data_type": packet_dict.get("data_type", "image" if raw_size > 100000 else "numeric"),
+            "criticality": packet_dict.get("criticality", "routine"),
             "compressor": compressor,
             "compression_level": level,
             "raw_bytes": raw_size,

@@ -102,7 +102,8 @@ def get_summary():
     saved_pct = round((1.0 - (total_comp / max(1, total_raw))) * 100.0, 1) if total_raw > 0 else 0.0
 
     ratios = [safe_float(r.get("ratio", 1.0), 1.0) for r in outcomes if "ratio" in r and r.get("ratio")]
-    avg_ratio = round(sum(ratios) / max(1, len(ratios)), 2) if ratios else 1.0
+    valid_ratios = [r for r in ratios if 0.5 <= r <= 100.0]
+    avg_ratio = round(sum(valid_ratios) / max(1, len(valid_ratios)), 2) if valid_ratios else 1.0
 
     latencies = [safe_float(r.get("latency_ms", 0.0), 0.0) for r in outcomes if "latency_ms" in r and r.get("latency_ms")]
     avg_latency = round(sum(latencies) / max(1, len(latencies)), 2) if latencies else 0.0
