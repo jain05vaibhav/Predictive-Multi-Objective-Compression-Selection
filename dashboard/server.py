@@ -19,7 +19,6 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from edge.sensors.camera_reader import CameraReader
 from edge.file_compression import FileCompressionEngine
 
 app = Flask(__name__, static_folder="static")
@@ -28,14 +27,13 @@ LOGS_DIR = os.path.join(PROJECT_ROOT, "logs")
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 CAM_DIR = os.path.join(DATA_DIR, "camera_captures")
 FILES_DIR = os.path.join(DATA_DIR, "compressed_files")
+LATEST_FRAME_PATH = os.path.join(CAM_DIR, "latest_frame.jpg")
 
 os.makedirs(LOGS_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(CAM_DIR, exist_ok=True)
 os.makedirs(FILES_DIR, exist_ok=True)
 
-# Hardware Singletons
-_camera_singleton: Optional[CameraReader] = None
 _file_engine = FileCompressionEngine()
 
 # Active In-Memory Network Control State for Edge Nodes
@@ -46,14 +44,6 @@ _active_network_overrides = {
     "override_entropy": 1.50,
     "timestamp": time.time()
 }
-
-
-def get_camera() -> CameraReader:
-    """Lazy-initializes process-wide CameraReader singleton."""
-    global _camera_singleton
-    if _camera_singleton is None:
-        _camera_singleton = CameraReader(resolution=(640, 480))
-    return _camera_singleton
 
 
 def read_csv_tail(filepath: str, n: int = 50) -> List[Dict[str, Any]]:
@@ -220,35 +210,45 @@ def get_profiler_table():
 
 
 # -----------------------------------------------------------------------------
-# Live MJPEG Real-Time Video Streaming Route (25-30 FPS)
+# Live MJPEG Real-Time Video Streaming Route
 # -----------------------------------------------------------------------------
 @app.route("/api/video_feed")
 def video_feed():
     """
-    Streams continuous live MJPEG video from the Raspberry Pi CSI camera module.
-    Yields multipart JPEG frames at 25 FPS for smooth zero-lag streaming.
+    Streams live MJPEG video of frames ingested from the Raspberry Pi CSI camera module.
+    Pulls directly from data/camera_captures/latest_frame.jpg updated by Cloud Receiver.
     """
-    cam = get_camera()
-
     def generate_frames():
+        last_bytes = None
+        last_mtime = 0
         while True:
-            frame_bytes = cam.get_live_video_frame_bytes()
-            if frame_bytes:
+            if os.path.exists(LATEST_FRAME_PATH):
+                try:
+                    mtime = os.path.getmtime(LATEST_FRAME_PATH)
+                    if mtime != last_mtime or last_bytes is None:
+                        with open(LATEST_FRAME_PATH, "rb") as f:
+                            last_bytes = f.read()
+                        last_mtime = mtime
+                except Exception:
+                    pass
+
+            if last_bytes:
                 yield (b"--frame\r\n"
-                       b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n")
-            time.sleep(0.04)  # ~25 FPS
+                       b"Content-Type: image/jpeg\r\n\r\n" + last_bytes + b"\r\n")
+            time.sleep(0.08)  # ~12 FPS refresh rate
 
     return Response(generate_frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
 @app.route("/api/camera/latest")
 def get_camera_image():
-    """Serves single snapshot frame JPEG."""
-    cam = get_camera()
-    frame_bytes = cam.get_live_video_frame_bytes()
-    if frame_bytes:
-        return Response(frame_bytes, mimetype="image/jpeg")
-    return ("Camera buffering", 404)
+    """Serves the latest camera frame captured by the Raspberry Pi OV5647 camera."""
+    if os.path.exists(LATEST_FRAME_PATH):
+        try:
+            return send_file(LATEST_FRAME_PATH, mimetype="image/jpeg")
+        except Exception:
+            pass
+    return ("Raspberry Pi camera frame buffering...", 404)
 
 
 # -----------------------------------------------------------------------------
