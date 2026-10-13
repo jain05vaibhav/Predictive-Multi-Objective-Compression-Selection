@@ -39,6 +39,12 @@ try:
 except (ImportError, Exception):
     HAS_OPENCV = False
 
+try:
+    from PIL import Image
+    HAS_PIL = True
+except (ImportError, Exception):
+    HAS_PIL = False
+
 
 # Process-wide hardware handle cache to prevent duplicate device locking on Unicam/ISP
 _GLOBAL_PICAM2_INSTANCE: Optional[Any] = None
@@ -167,6 +173,16 @@ class CameraReader:
                 if HAS_OPENCV:
                     _, buffer = cv2.imencode('.jpg', frame_array)
                     image_bytes = buffer.tobytes()
+                elif HAS_PIL:
+                    if len(frame_array.shape) == 3 and frame_array.shape[2] == 4:
+                        pil_img = Image.fromarray(frame_array[:, :, [2, 1, 0]])
+                    elif len(frame_array.shape) == 3 and frame_array.shape[2] == 3:
+                        pil_img = Image.fromarray(frame_array[:, :, [2, 1, 0]])
+                    else:
+                        pil_img = Image.fromarray(frame_array)
+                    buf = io.BytesIO()
+                    pil_img.save(buf, format="JPEG", quality=80)
+                    image_bytes = buf.getvalue()
                 else:
                     image_bytes = frame_array.tobytes()
             except Exception as e:

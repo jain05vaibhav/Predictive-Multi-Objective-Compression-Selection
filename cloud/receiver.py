@@ -108,13 +108,19 @@ class CloudReceiver:
                 import base64
                 b64_frame = latest_sample.get("frame_data")
                 if not b64_frame and isinstance(latest_sample.get("camera"), dict):
-                    b64_frame = latest_sample["camera"].get("image_bytes")
-                if b64_frame and isinstance(b64_frame, str) and len(b64_frame) > 100:
+                    b64_frame = latest_sample["camera"].get("image_b64") or latest_sample["camera"].get("image_bytes")
+                if b64_frame:
                     try:
-                        img_bytes = base64.b64decode(b64_frame)
-                        os.makedirs("data/camera_captures", exist_ok=True)
-                        with open("data/camera_captures/latest_frame.jpg", "wb") as f_img:
-                            f_img.write(img_bytes)
+                        if isinstance(b64_frame, str) and len(b64_frame) > 100:
+                            img_bytes = base64.b64decode(b64_frame)
+                        elif isinstance(b64_frame, (bytes, bytearray)) and len(b64_frame) > 100:
+                            img_bytes = bytes(b64_frame)
+                        else:
+                            img_bytes = None
+                        if img_bytes:
+                            os.makedirs("data/camera_captures", exist_ok=True)
+                            with open("data/camera_captures/latest_frame.jpg", "wb") as f_img:
+                                f_img.write(img_bytes)
                     except Exception:
                         pass
         except Exception:
