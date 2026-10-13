@@ -96,7 +96,7 @@ class RPiTelemetryHub:
         raw_img = cam_data.get("image_bytes", b"")
         b64_img = base64.b64encode(raw_img).decode("ascii") if raw_img else ""
 
-        cam_info = {k: v for k, v in cam_data.items() if k != "memory_buffer"}
+        cam_info = {k: v for k, v in cam_data.items() if k not in ("memory_buffer", "image_bytes")}
         cam_info["image_bytes"] = raw_img
         cam_info["image_b64"] = b64_img
 
@@ -112,7 +112,7 @@ class RPiTelemetryHub:
             "core_voltage_v": sys_data.get("core_voltage_v", 0.0),
             "memory_percent": sys_data.get("memory_percent", 0.0),
             "frame_id": cam_data.get("frame_id", 0),
-            "frame_data": raw_img,
+            "frame_data": "",
             # Structured sub-sections
             "dht22": dht_data,
             "system": sys_data,
