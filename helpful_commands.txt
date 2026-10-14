@@ -96,3 +96,9 @@ ls -lh data/camera_captures/latest_frame.jpg
 type logs\decisions.csv                       # Windows
 cat logs/decisions.csv                        # Linux / Mac
 ================================================================================
+
+
+
+python -u -m cloud.receiver --host 0.0.0.0 --port 8765
+python -u -m dashboard.server --host 0.0.0.0 --port 5000
+ .venv/bin/python3 -m edge.main_loop --cloud-host 192.168.137.151 --cloud-port 8765 --window-size 3
